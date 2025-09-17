@@ -10,6 +10,7 @@ import { BottomNavigation } from "./components/BottomNavigation";
 import { Button } from "./components/ui/button";
 import { Languages } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
+import { translationService } from "./services/translation";
 
 interface Language {
   code: string;
@@ -341,66 +342,31 @@ export default function App() {
   }, [getTargetLanguages, enabledLanguages]);
 
   const mockTranslate = useCallback(async (text: string, from: string, to: string, tone: string = "casual"): Promise<string> => {
-    const translationKey = `${from}-${to}`;
-    
-    // Check tone-specific translations first
-    const toneTranslations = mockTranslationsWithTone[translationKey]?.[tone];
-    if (toneTranslations && toneTranslations[text]) {
-      return toneTranslations[text];
+    try {
+      return await translationService.translateText({
+        text,
+        sourceLanguage: from,
+        targetLanguage: to,
+        tone
+      });
+    } catch (error) {
+      console.error('Translation failed:', error);
+      return `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
-    
-    // Fallback to legacy translations
-    const translations = mockTranslations[translationKey];
-    if (translations && translations[text]) {
-      return translations[text];
-    }
-    
-    // Fallback mock translation with tone variation
-    const fallbackTranslations: Record<string, Record<string, string>> = {
-      ja: {
-        casual: "これはモック翻訳だよ",
-        neutral: "これはモック翻訳です",
-        "semi-formal": "これはモ��ク翻訳でございます",
-        formal: "これはモック翻訳でございます",
-      },
-      ko: {
-        casual: "이건 모의 번역이야",
-        neutral: "이것은 모의 번역입니다",
-        "semi-formal": "이것은 모의 번역입니다",
-        formal: "이것은 모의 번역이라 할 수 있습니다",
-      },
-      "en-us": {
-        casual: "This is a mock translation",
-        neutral: "This is a mock translation",
-        "semi-formal": "This constitutes a mock translation",
-        formal: "This represents a mock translation",
-      },
-      "en-uk": {
-        casual: "This is a mock translation",
-        neutral: "This is a mock translation",
-        "semi-formal": "This constitutes a mock translation",
-        formal: "This represents a mock translation",
-      },
-      "en-au": {
-        casual: "This is a mock translation",
-        neutral: "This is a mock translation",
-        "semi-formal": "This constitutes a mock translation",
-        formal: "This represents a mock translation",
-      },
-    };
-    
-    return fallbackTranslations[to]?.[tone] || fallbackTranslations[to]?.["casual"] || "Translation not available";
   }, []);
 
   const mockMultiTranslate = useCallback(async (text: string, from: string, targetLangs: string[], tone: string = "casual"): Promise<Record<string, string>> => {
-    const results: Record<string, string> = {};
-    
-    for (const toLang of targetLangs) {
-      results[toLang] = await mockTranslate(text, from, toLang, tone);
+    try {
+      return await translationService.translateToMultipleLanguages(text, from, targetLangs, tone);
+    } catch (error) {
+      console.error('Multi-translation failed:', error);
+      const fallbackResults: Record<string, string> = {};
+      targetLangs.forEach(lang => {
+        fallbackResults[lang] = `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      });
+      return fallbackResults;
     }
-    
-    return results;
-  }, [mockTranslate]);
+  }, []);
 
   const handleTranslate = useCallback(async () => {
     if (!sourceText.trim()) return;

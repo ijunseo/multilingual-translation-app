@@ -12,7 +12,7 @@ This is a code bundle for Multilingual Translation App. The original project is 
 
 2. Update `.env` with your API keys:
    ```
-   OPENAI_API_KEY=your_openai_api_key
+   VITE_OPENAI_API_KEY=your_openai_api_key
    ```
 
 ## Running the code
