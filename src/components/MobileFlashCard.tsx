@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Button } from "./ui/button";
-import { Card } from "./ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { ScrollArea } from "./ui/scroll-area";
-import { Badge } from "./ui/badge";
-import { Separator } from "./ui/separator";
-import { ChevronLeft, ChevronRight, RotateCcw, Volume2, Heart, History, Shuffle, Play, Pause, CheckCircle, XCircle } from "lucide-react";
-import { toast } from "sonner@2.0.3";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Dimensions,
+  Alert,
+} from "react-native";
 
 interface MultiTranslationHistoryItem {
   id: string;
@@ -15,7 +16,7 @@ interface MultiTranslationHistoryItem {
   sourceLanguage: string;
   timestamp: Date;
   category?: string;
-  tone?: string; // Translation tone used
+  tone?: string;
 }
 
 interface PhrasebookCategory {
@@ -26,10 +27,10 @@ interface PhrasebookCategory {
 }
 
 interface MobileFlashCardProps {
-  history: MultiTranslationHistoryItem[];
   phrasebook: MultiTranslationHistoryItem[];
-  phrasebookCategories: PhrasebookCategory[];
+  history: MultiTranslationHistoryItem[];
   allLanguages: { code: string; name: string; nativeName: string }[];
+  phrasebookCategories: PhrasebookCategory[];
   onSpeak: (text: string, language: string) => void;
 }
 
@@ -38,27 +39,22 @@ interface SwipeResult {
   understood: boolean;
 }
 
+const { width: screenWidth } = Dimensions.get("window");
+
 export function MobileFlashCard({
-  history,
   phrasebook,
-  phrasebookCategories,
+  history,
   allLanguages,
+  phrasebookCategories,
   onSpeak,
 }: MobileFlashCardProps) {
-  const [activeTab, setActiveTab] = useState("select");
+  const [activeTab, setActiveTab] = useState<"select" | "study" | "results">("select");
   const [selectedItems, setSelectedItems] = useState<MultiTranslationHistoryItem[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [isAutoPlay, setIsAutoPlay] = useState(false);
-  const [autoPlayInterval, setAutoPlayInterval] = useState<NodeJS.Timeout | null>(null);
+  // const [isAutoPlay, setIsAutoPlay] = useState(false);
   const [swipeResults, setSwipeResults] = useState<SwipeResult[]>([]);
-  const [cardTransform, setCardTransform] = useState({ x: 0, rotation: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const startPos = useRef({ x: 0, y: 0 });
-  const currentPos = useRef({ x: 0, y: 0 });
 
-  // Define these early so they can be used in callbacks
   const currentCard = selectedItems[currentCardIndex];
   const understoodCount = swipeResults.filter(r => r.understood).length;
   const notUnderstoodCount = swipeResults.filter(r => !r.understood).length;
@@ -81,16 +77,15 @@ export function MobileFlashCard({
 
   const startFlashCardSession = (items: MultiTranslationHistoryItem[]) => {
     if (items.length === 0) {
-      toast.error("No items selected for flash cards");
+      Alert.alert("Error", "No items selected for flash cards");
       return;
     }
     setSelectedItems(items);
     setCurrentCardIndex(0);
     setIsFlipped(false);
     setSwipeResults([]);
-    setCardTransform({ x: 0, rotation: 0 });
     setActiveTab("study");
-    toast.success(`Starting flash card session with ${items.length} cards`);
+    Alert.alert("Success", `Starting flash card session with ${items.length} cards`);
   };
 
   const shuffleCards = () => {
@@ -99,386 +94,209 @@ export function MobileFlashCard({
     setCurrentCardIndex(0);
     setIsFlipped(false);
     setSwipeResults([]);
-    setCardTransform({ x: 0, rotation: 0 });
-    toast.success("Cards shuffled");
+    Alert.alert("Success", "Cards shuffled");
   };
 
   const nextCard = () => {
-    setCardTransform({ x: 0, rotation: 0 });
     if (currentCardIndex < selectedItems.length - 1) {
       setCurrentCardIndex(prev => prev + 1);
       setIsFlipped(false);
     } else {
-      // Show results
       setActiveTab("results");
     }
   };
 
   const prevCard = () => {
-    setCardTransform({ x: 0, rotation: 0 });
     if (currentCardIndex > 0) {
       setCurrentCardIndex(prev => prev - 1);
       setIsFlipped(false);
     }
   };
 
-  const toggleAutoPlay = () => {
-    if (isAutoPlay) {
-      if (autoPlayInterval) {
-        clearInterval(autoPlayInterval);
-        setAutoPlayInterval(null);
-      }
-      setIsAutoPlay(false);
-      toast.success("Auto-play stopped");
-    } else {
-      const interval = setInterval(() => {
-        if (!isFlipped) {
-          setIsFlipped(true);
-        } else {
-          nextCard();
-        }
-      }, 3000);
-      setAutoPlayInterval(interval);
-      setIsAutoPlay(true);
-      toast.success("Auto-play started");
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (autoPlayInterval) {
-        clearInterval(autoPlayInterval);
-      }
-    };
-  }, [autoPlayInterval]);
-
-  // Swipe gesture handlers
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (isAutoPlay) return;
-    
-    const touch = e.touches[0];
-    startPos.current = { x: touch.clientX, y: touch.clientY };
-    currentPos.current = { x: touch.clientX, y: touch.clientY };
-    setIsDragging(true);
-  }, [isAutoPlay]);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging || isAutoPlay) return;
-    
-    const touch = e.touches[0];
-    currentPos.current = { x: touch.clientX, y: touch.clientY };
-    
-    const deltaX = currentPos.current.x - startPos.current.x;
-    const maxSwipe = 150;
-    const rotation = (deltaX / maxSwipe) * 15; // Max 15 degrees rotation
-    
-    setCardTransform({
-      x: deltaX,
-      rotation: Math.max(-15, Math.min(15, rotation))
-    });
-  }, [isDragging, isAutoPlay]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (!isDragging || isAutoPlay) return;
-    
-    const deltaX = currentPos.current.x - startPos.current.x;
-    const threshold = 100;
-    
-    if (Math.abs(deltaX) > threshold && currentCard) {
-      const understood = deltaX > 0; // Right swipe = understood
-      
-      // Record the result
-      setSwipeResults(prev => [
-        ...prev.filter(r => r.cardId !== currentCard.id), // Remove existing result for this card
-        { cardId: currentCard.id, understood }
-      ]);
-      
-      // Show feedback
-      if (understood) {
-        toast.success("理解した！", { duration: 1000 });
-      } else {
-        toast.error("分からない", { duration: 1000 });
-      }
-      
-      // Move to next card after a short delay
-      setTimeout(() => {
-        nextCard();
-      }, 300);
-    } else {
-      // Reset card position
-      setCardTransform({ x: 0, rotation: 0 });
-    }
-    
-    setIsDragging(false);
-  }, [isDragging, isAutoPlay, currentCard, nextCard]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (isAutoPlay) return;
-    
-    startPos.current = { x: e.clientX, y: e.clientY };
-    currentPos.current = { x: e.clientX, y: e.clientY };
-    setIsDragging(true);
-  }, [isAutoPlay]);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || isAutoPlay) return;
-    
-    currentPos.current = { x: e.clientX, y: e.clientY };
-    
-    const deltaX = currentPos.current.x - startPos.current.x;
-    const maxSwipe = 150;
-    const rotation = (deltaX / maxSwipe) * 15;
-    
-    setCardTransform({
-      x: deltaX,
-      rotation: Math.max(-15, Math.min(15, rotation))
-    });
-  }, [isDragging, isAutoPlay]);
-
-  const handleMouseUp = useCallback(() => {
-    if (!isDragging || isAutoPlay) return;
-    
-    const deltaX = currentPos.current.x - startPos.current.x;
-    const threshold = 100;
-    
-    if (Math.abs(deltaX) > threshold && currentCard) {
-      const understood = deltaX > 0;
-      
-      setSwipeResults(prev => [
-        ...prev.filter(r => r.cardId !== currentCard.id),
-        { cardId: currentCard.id, understood }
-      ]);
-      
-      if (understood) {
-        toast.success("理解した！", { duration: 1000 });
-      } else {
-        toast.error("分からない", { duration: 1000 });
-      }
-      
-      setTimeout(() => {
-        nextCard();
-      }, 300);
-    } else {
-      setCardTransform({ x: 0, rotation: 0 });
-    }
-    
-    setIsDragging(false);
-  }, [isDragging, isAutoPlay, currentCard, nextCard]);
-
-  // Mouse event listeners
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
-
-  const markAsUnderstood = useCallback(() => {
+  const markAsUnderstood = () => {
     if (!currentCard) return;
-    
+
     setSwipeResults(prev => [
       ...prev.filter(r => r.cardId !== currentCard.id),
       { cardId: currentCard.id, understood: true }
     ]);
-    
-    toast.success("理解した！", { duration: 1000 });
+
     setTimeout(() => {
       nextCard();
     }, 300);
-  }, [currentCard, nextCard]);
+  };
 
-  const markAsNotUnderstood = useCallback(() => {
+  const markAsNotUnderstood = () => {
     if (!currentCard) return;
-    
+
     setSwipeResults(prev => [
       ...prev.filter(r => r.cardId !== currentCard.id),
       { cardId: currentCard.id, understood: false }
     ]);
-    
-    toast.error("分からない", { duration: 1000 });
+
     setTimeout(() => {
       nextCard();
     }, 300);
-  }, [currentCard, nextCard]);
+  };
 
   const renderItemCard = (item: MultiTranslationHistoryItem, isFromPhrasebook: boolean = false) => {
     const sourceLang = getLanguageByCode(item.sourceLanguage);
     const category = item.category ? getCategoryById(item.category) : null;
-    
+
     return (
-      <Card key={item.id} className="p-4 border border-border hover:bg-muted/30 transition-colors">
-        <div className="flex items-start gap-3">
-          <div className="flex-1">
-            {/* Source language indicator */}
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <Badge variant="secondary" className="text-xs">
-                {sourceLang?.nativeName || item.sourceLanguage}
-              </Badge>
-              {isFromPhrasebook && (
-                <Heart className="w-4 h-4 text-red-500 fill-current" />
-              )}
-              {item.tone && (
-                <Badge variant="outline" className="text-xs">
-                  {item.tone.charAt(0).toUpperCase() + item.tone.slice(1)}
-                </Badge>
-              )}
-              {isFromPhrasebook && category && (
-                <Badge 
-                  variant="secondary" 
-                  className="text-xs"
-                  style={{ backgroundColor: `${category.color}20`, color: category.color }}
-                >
-                  {category.name}
-                </Badge>
-              )}
-              <span className="text-xs text-muted-foreground">
-                {item.timestamp.toLocaleDateString()}
-              </span>
-            </div>
-            
-            {/* Source text */}
-            <p className="font-medium mb-3 line-clamp-2">{item.sourceText}</p>
-            
-            {/* Translations preview */}
-            <div className="space-y-1">
-              {Object.entries(item.translations).slice(0, 2).map(([langCode, translation]) => {
-                const lang = getLanguageByCode(langCode);
-                return (
-                  <div key={langCode} className="flex items-start">
-                    <p className="text-sm text-muted-foreground line-clamp-1 flex-1">
-                      {translation}
-                    </p>
-                  </div>
-                );
-              })}
-              {Object.keys(item.translations).length > 2 && (
-                <p className="text-xs text-muted-foreground">
-                  +{Object.keys(item.translations).length - 2} more translations
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </Card>
+      <TouchableOpacity
+        key={item.id}
+        style={styles.itemCard}
+        onPress={() => startFlashCardSession([item])}
+      >
+        <View style={styles.itemHeader}>
+          <View style={styles.languageBadge}>
+            <Text style={styles.languageBadgeText}>
+              {sourceLang?.nativeName || item.sourceLanguage}
+            </Text>
+          </View>
+          {isFromPhrasebook && (
+            <Text style={styles.heartIcon}>❤️</Text>
+          )}
+          {item.tone && (
+            <View style={styles.toneBadge}>
+              <Text style={styles.toneBadgeText}>
+                {item.tone.charAt(0).toUpperCase() + item.tone.slice(1)}
+              </Text>
+            </View>
+          )}
+          {isFromPhrasebook && category && (
+            <View style={[styles.categoryBadge, { backgroundColor: `${category.color}20` }]}>
+              <Text style={[styles.categoryBadgeText, { color: category.color }]}>
+                {category.name}
+              </Text>
+            </View>
+          )}
+          <Text style={styles.dateText}>
+            {item.timestamp.toLocaleDateString()}
+          </Text>
+        </View>
+
+        <Text style={styles.itemSourceText} numberOfLines={2}>
+          {item.sourceText}
+        </Text>
+
+        <View style={styles.translationsPreview}>
+          {Object.entries(item.translations).slice(0, 2).map(([langCode, translation]) => (
+            <Text key={langCode} style={styles.translationPreviewText} numberOfLines={1}>
+              {translation}
+            </Text>
+          ))}
+          {Object.keys(item.translations).length > 2 && (
+            <Text style={styles.moreTranslationsText}>
+              +{Object.keys(item.translations).length - 2} more translations
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
     );
   };
 
   const SelectionScreen = () => (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div className="p-4 border-b border-border flex-shrink-0">
-        <h2 className="text-lg font-medium mb-2">Select Flash Cards</h2>
-        <p className="text-sm text-muted-foreground">
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Select Flash Cards</Text>
+        <Text style={styles.headerSubtitle}>
           Choose items from your history or phrasebook to create flash cards
-        </p>
-      </div>
+        </Text>
+      </View>
 
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-6">
-          {/* Quick actions */}
-          <div className="grid grid-cols-2 gap-3">
-            <Button
-              variant="outline"
-              className="h-16 flex flex-col items-center gap-2"
-              onClick={() => startFlashCardSession(phrasebook)}
-              disabled={phrasebook.length === 0}
-            >
-              <Heart className="w-5 h-5" />
-              <span className="text-sm">All Phrasebook ({phrasebook.length})</span>
-            </Button>
-            
-            <Button
-              variant="outline"
-              className="h-16 flex flex-col items-center gap-2"
-              onClick={() => startFlashCardSession(history.slice(0, 10))}
-              disabled={history.length === 0}
-            >
-              <History className="w-5 h-5" />
-              <span className="text-sm">Recent History ({Math.min(history.length, 10)})</span>
-            </Button>
-          </div>
+      <ScrollView style={styles.content}>
+        {/* Quick actions */}
+        <View style={styles.quickActionsGrid}>
+          <TouchableOpacity
+            style={[styles.quickActionButton, phrasebook.length === 0 && styles.quickActionButtonDisabled]}
+            onPress={() => startFlashCardSession(phrasebook)}
+            disabled={phrasebook.length === 0}
+          >
+            <Text style={styles.quickActionIcon}>❤️</Text>
+            <Text style={styles.quickActionText}>All Phrasebook ({phrasebook.length})</Text>
+          </TouchableOpacity>
 
-          {/* Category quick actions */}
-          {phrasebookCategories.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium mb-3">Study by Category</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {phrasebookCategories.map(category => {
-                  const itemCount = getCategoryItemCount(category.id);
-                  return (
-                    <Button
-                      key={category.id}
-                      variant="outline"
-                      className="h-12 flex items-center gap-2 justify-start"
-                      onClick={() => startFlashCardSession(getPhrasebookByCategory(category.id))}
-                      disabled={itemCount === 0}
-                    >
-                      <div 
-                        className="w-3 h-3 rounded-full" 
-                        style={{ backgroundColor: category.color }}
-                      />
-                      <span className="text-sm truncate">{category.name} ({itemCount})</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <TouchableOpacity
+            style={[styles.quickActionButton, history.length === 0 && styles.quickActionButtonDisabled]}
+            onPress={() => startFlashCardSession(history.slice(0, 10))}
+            disabled={history.length === 0}
+          >
+            <Text style={styles.quickActionIcon}>📋</Text>
+            <Text style={styles.quickActionText}>Recent History ({Math.min(history.length, 10)})</Text>
+          </TouchableOpacity>
+        </View>
 
-          <Separator />
+        {/* Category quick actions */}
+        {phrasebookCategories.length > 0 && (
+          <View style={styles.categorySection}>
+            <Text style={styles.sectionTitle}>Study by Category</Text>
+            <View style={styles.categoryGrid}>
+              {phrasebookCategories.map(category => {
+                const itemCount = getCategoryItemCount(category.id);
+                return (
+                  <TouchableOpacity
+                    key={category.id}
+                    style={[styles.categoryButton, itemCount === 0 && styles.categoryButtonDisabled]}
+                    onPress={() => startFlashCardSession(getPhrasebookByCategory(category.id))}
+                    disabled={itemCount === 0}
+                  >
+                    <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                    <Text style={styles.categoryButtonText} numberOfLines={1}>
+                      {category.name} ({itemCount})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
-          {/* Individual selection */}
-          <Tabs defaultValue="phrasebook" className="flex-1">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="phrasebook">
-                Phrasebook ({phrasebook.length})
-              </TabsTrigger>
-              <TabsTrigger value="history">
-                History ({history.length})
-              </TabsTrigger>
-            </TabsList>
+        <View style={styles.separator} />
 
-            <TabsContent value="phrasebook" className="mt-4">
-              {phrasebook.length === 0 ? (
-                <div className="text-center py-8">
-                  <Heart className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No saved phrases</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {phrasebook.map((item) => (
-                    <div key={item.id} onClick={() => startFlashCardSession([item])}>
-                      {renderItemCard(item, true)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
+        {/* Individual selection tabs */}
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity style={styles.tab}>
+            <Text style={styles.tabText}>Phrasebook ({phrasebook.length})</Text>
+          </TouchableOpacity>
+        </View>
 
-            <TabsContent value="history" className="mt-4">
-              {history.length === 0 ? (
-                <div className="text-center py-8">
-                  <History className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No translation history</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {history.slice(0, 20).map((item) => (
-                    <div key={item.id} onClick={() => startFlashCardSession([item])}>
-                      {renderItemCard(item)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </div>
-      </ScrollArea>
-    </div>
+        {phrasebook.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>❤️</Text>
+            <Text style={styles.emptyTitle}>No saved phrases</Text>
+            <Text style={styles.emptySubtitle}>
+              Save some phrases to create flash cards
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.itemsList}>
+            {phrasebook.map((item) => renderItemCard(item, true))}
+          </View>
+        )}
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity style={styles.tab}>
+            <Text style={styles.tabText}>History ({history.length})</Text>
+          </TouchableOpacity>
+        </View>
+
+        {history.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>📋</Text>
+            <Text style={styles.emptyTitle}>No translation history</Text>
+            <Text style={styles.emptySubtitle}>
+              Start translating to see history
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.itemsList}>
+            {history.slice(0, 20).map((item) => renderItemCard(item))}
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 
   const StudyScreen = () => {
@@ -487,301 +305,755 @@ export function MobileFlashCard({
     const sourceLang = getLanguageByCode(currentCard.sourceLanguage);
 
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      <View style={styles.container}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
-          <Button variant="ghost" size="sm" onClick={() => setActiveTab("select")}>
-            <ChevronLeft className="w-4 h-4 mr-1" />
-            Back
-          </Button>
-          
-          <div className="text-center">
-            <p className="text-sm font-medium">
+        <View style={styles.studyHeader}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setActiveTab("select")}
+          >
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.progressInfo}>
+            <Text style={styles.progressText}>
               {currentCardIndex + 1} / {selectedItems.length}
-            </p>
-            <p className="text-xs text-muted-foreground">Flash Cards</p>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={shuffleCards}>
-              <Shuffle className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={toggleAutoPlay}>
-              {isAutoPlay ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </Button>
-          </div>
-        </div>
+            </Text>
+            <Text style={styles.progressSubtext}>Flash Cards</Text>
+          </View>
+
+          <View style={styles.studyActions}>
+            <TouchableOpacity style={styles.actionButton} onPress={shuffleCards}>
+              <Text style={styles.actionButtonText}>🔀</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Swipe instructions */}
+        <View style={styles.swipeInstructions}>
+          <Text style={styles.swipeInstructionText}>
+            ← Don't know | Know it →
+          </Text>
+        </View>
+
+        {/* Progress indicators */}
+        <View style={styles.progressIndicators}>
+          <View style={styles.progressIndicator}>
+            <Text style={styles.progressIndicatorIcon}>✓</Text>
+            <Text style={styles.progressIndicatorText}>{understoodCount}</Text>
+          </View>
+          <View style={styles.progressIndicator}>
+            <Text style={styles.progressIndicatorIcon}>✗</Text>
+            <Text style={styles.progressIndicatorText}>{notUnderstoodCount}</Text>
+          </View>
+        </View>
 
         {/* Flash Card */}
-        <div className="flex-1 flex items-center justify-center p-4 min-h-0 relative">
-          {/* Swipe instructions */}
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 flex items-center gap-4 text-xs text-muted-foreground z-10">
-            <div className="flex items-center gap-1">
-              <XCircle className="w-4 h-4 text-red-500" />
-              <span>← 分からない</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span>理解した →</span>
-              <CheckCircle className="w-4 h-4 text-green-500" />
-            </div>
-          </div>
-          
-          {/* Progress indicators */}
-          <div className="absolute top-4 right-4 flex flex-col gap-2 text-xs">
-            <div className="flex items-center gap-1">
-              <CheckCircle className="w-3 h-3 text-green-500" />
-              <span>{understoodCount}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <XCircle className="w-3 h-3 text-red-500" />
-              <span>{notUnderstoodCount}</span>
-            </div>
-          </div>
-          
-          <div
-            ref={cardRef}
-            className="w-full max-w-md h-80 cursor-pointer select-none"
-            style={{
-              transform: `translateX(${cardTransform.x}px) rotate(${cardTransform.rotation}deg)`,
-              transition: isDragging ? 'none' : 'transform 0.3s ease-out'
-            }}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onMouseDown={handleMouseDown}
+        <View style={styles.flashCardContainer}>
+          <TouchableOpacity
+            style={styles.flashCard}
+            onPress={() => setIsFlipped(!isFlipped)}
+            activeOpacity={0.9}
           >
-            <Card 
-              className={`w-full h-full border-2 transition-all duration-300 hover:shadow-lg ${
-                cardTransform.x > 50 ? 'border-green-500 bg-green-50' :
-                cardTransform.x < -50 ? 'border-red-500 bg-red-50' : ''
-              }`}
-              onClick={(e) => {
-                if (!isDragging && Math.abs(cardTransform.x) < 10) {
-                  setIsFlipped(!isFlipped);
-                }
-              }}
-            >
-              <div className="h-full p-6 flex flex-col">
-                {!isFlipped ? (
-                  // Front side - Source text
-                  <div className="flex-1 flex flex-col justify-center items-center text-center">
-                    <div className="flex items-center gap-2 mb-4 flex-wrap justify-center">
-                      <Badge>
-                        {sourceLang?.nativeName || currentCard.sourceLanguage}
-                      </Badge>
-                      {currentCard.tone && (
-                        <Badge variant="outline" className="text-xs">
-                          {currentCard.tone.charAt(0).toUpperCase() + currentCard.tone.slice(1)} Style
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    <p className="text-lg font-medium mb-4 leading-relaxed break-words">
-                      {currentCard.sourceText}
-                    </p>
-                    
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSpeak(currentCard.sourceText, currentCard.sourceLanguage);
-                      }}
-                    >
-                      <Volume2 className="w-4 h-4 mr-2" />
-                      Listen
-                    </Button>
-                    
-                    <p className="text-xs text-muted-foreground mt-4">
-                      Tap to see translations
-                    </p>
-                  </div>
-                ) : (
-                  // Back side - Translations
-                  <div className="flex-1 flex flex-col min-h-0">
-                    <div className="text-center mb-4 flex-shrink-0">
-                      <Badge variant="secondary">Translations</Badge>
-                    </div>
-                    
-                    <ScrollArea className="flex-1 min-h-0">
-                      <div className="space-y-3">
-                        {Object.entries(currentCard.translations).map(([langCode, translation]) => {
-                          const lang = getLanguageByCode(langCode);
-                          return (
-                            <div key={langCode} className="p-3 bg-muted/30 rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium">
-                                  {lang?.nativeName || langCode}
-                                </span>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSpeak(translation, langCode);
-                                  }}
-                                >
-                                  <Volume2 className="w-3 h-3" />
-                                </Button>
-                              </div>
-                              <p className="text-sm leading-relaxed break-words">{translation}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                    
-                    <p className="text-xs text-muted-foreground text-center mt-4 flex-shrink-0">
-                      Tap to see source text
-                    </p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-        </div>
+            {!isFlipped ? (
+              // Front side - Source text
+              <View style={styles.flashCardContent}>
+                <View style={styles.flashCardBadges}>
+                  <View style={styles.languageBadge}>
+                    <Text style={styles.languageBadgeText}>
+                      {sourceLang?.nativeName || currentCard.sourceLanguage}
+                    </Text>
+                  </View>
+                  {currentCard.tone && (
+                    <View style={styles.toneBadge}>
+                      <Text style={styles.toneBadgeText}>
+                        {currentCard.tone.charAt(0).toUpperCase() + currentCard.tone.slice(1)} Style
+                      </Text>
+                    </View>
+                  )}
+                </View>
 
-        {/* Swipe Action Buttons */}
-        <div className="flex items-center justify-center gap-4 p-4 border-t border-border flex-shrink-0">
-          <Button 
-            variant="outline" 
-            size="lg"
-            onClick={markAsNotUnderstood}
-            className="flex-1 max-w-32 border-red-200 text-red-600 hover:bg-red-50"
+                <Text style={styles.flashCardText}>
+                  {currentCard.sourceText}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.speakButton}
+                  onPress={() => onSpeak(currentCard.sourceText, currentCard.sourceLanguage)}
+                >
+                  <Text style={styles.speakButtonText}>🔊 Listen</Text>
+                </TouchableOpacity>
+
+                <Text style={styles.tapHint}>
+                  Tap to see translations
+                </Text>
+              </View>
+            ) : (
+              // Back side - Translations
+              <View style={styles.flashCardContent}>
+                <View style={styles.flashCardBadges}>
+                  <View style={[styles.languageBadge, styles.translationsBadge]}>
+                    <Text style={styles.languageBadgeText}>Translations</Text>
+                  </View>
+                </View>
+
+                <ScrollView style={styles.translationsScroll}>
+                  {Object.entries(currentCard.translations).map(([langCode, translation]) => {
+                    const lang = getLanguageByCode(langCode);
+                    return (
+                      <View key={langCode} style={styles.translationCard}>
+                        <View style={styles.translationHeader}>
+                          <Text style={styles.translationLanguage}>
+                            {lang?.nativeName || langCode}
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.translationSpeakButton}
+                            onPress={() => onSpeak(translation, langCode)}
+                          >
+                            <Text style={styles.translationSpeakText}>🔊</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.translationText}>{translation}</Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={styles.tapHint}>
+                  Tap to see source text
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity
+            style={[styles.actionButtonLarge, styles.dontKnowButton]}
+            onPress={markAsNotUnderstood}
           >
-            <XCircle className="w-5 h-5 mr-2" />
-            分からない
-          </Button>
-          
-          <Button 
-            variant="outline" 
-            onClick={prevCard}
+            <Text style={styles.actionButtonLargeIcon}>✗</Text>
+            <Text style={styles.actionButtonLargeText}>Don't Know</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navigationButton}
+            onPress={prevCard}
             disabled={currentCardIndex === 0}
-            className="px-3"
           >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          
-          <Button variant="ghost" onClick={() => setIsFlipped(!isFlipped)} className="px-3">
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          
-          <Button 
-            onClick={nextCard}
+            <Text style={styles.navigationButtonText}>←</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navigationButton}
+            onPress={() => setIsFlipped(!isFlipped)}
+          >
+            <Text style={styles.navigationButtonText}>🔄</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.navigationButton}
+            onPress={nextCard}
             disabled={currentCardIndex === selectedItems.length - 1}
-            className="px-3"
           >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          
-          <Button 
-            size="lg"
-            onClick={markAsUnderstood}
-            className="flex-1 max-w-32 bg-green-600 hover:bg-green-700 text-white"
+            <Text style={styles.navigationButtonText}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButtonLarge, styles.knowButton]}
+            onPress={markAsUnderstood}
           >
-            <CheckCircle className="w-5 h-5 mr-2" />
-            理解した
-          </Button>
-        </div>
-      </div>
+            <Text style={styles.actionButtonLargeIcon}>✓</Text>
+            <Text style={styles.actionButtonLargeText}>I Know</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   };
 
   const ResultsScreen = () => {
-    const totalCards = selectedItems.length;
     const reviewedCards = swipeResults.length;
     const percentage = reviewedCards > 0 ? Math.round((understoodCount / reviewedCards) * 100) : 0;
-    
+
     return (
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="p-4 border-b border-border flex-shrink-0">
-          <h2 className="text-lg font-medium mb-2">学習結果</h2>
-          <p className="text-sm text-muted-foreground">
-            フラッシュカードセッションが完了しました
-          </p>
-        </div>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Study Results</Text>
+          <Text style={styles.headerSubtitle}>
+            Flash card session completed
+          </Text>
+        </View>
 
-        <div className="flex-1 p-4">
-          <div className="max-w-md mx-auto space-y-6">
-            {/* Overall Statistics */}
-            <div className="text-center p-6 bg-muted/30 rounded-lg">
-              <div className="text-3xl font-bold mb-2">{percentage}%</div>
-              <p className="text-sm text-muted-foreground">理解度</p>
-            </div>
+        <View style={styles.resultsContent}>
+          {/* Overall Statistics */}
+          <View style={styles.overallStats}>
+            <Text style={styles.percentageText}>{percentage}%</Text>
+            <Text style={styles.percentageLabel}>Understanding</Text>
+          </View>
 
-            {/* Detailed Results */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-green-50 border border-green-200 rounded-lg">
-                <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
-                <div className="text-xl font-semibold text-green-700">{understoodCount}</div>
-                <p className="text-sm text-green-600">理解した</p>
-              </div>
-              
-              <div className="text-center p-4 bg-red-50 border border-red-200 rounded-lg">
-                <XCircle className="w-8 h-8 text-red-600 mx-auto mb-2" />
-                <div className="text-xl font-semibold text-red-700">{notUnderstoodCount}</div>
-                <p className="text-sm text-red-600">分からない</p>
-              </div>
-            </div>
+          {/* Detailed Results */}
+          <View style={styles.detailedResults}>
+            <View style={styles.resultCard}>
+              <Text style={styles.resultIcon}>✓</Text>
+              <Text style={styles.resultNumber}>{understoodCount}</Text>
+              <Text style={styles.resultLabel}>Understood</Text>
+            </View>
 
-            {/* Action Buttons */}
-            <div className="space-y-3">
-              <Button 
-                onClick={() => {
+            <View style={styles.resultCard}>
+              <Text style={styles.resultIcon}>✗</Text>
+              <Text style={styles.resultNumber}>{notUnderstoodCount}</Text>
+              <Text style={styles.resultLabel}>Need Review</Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.resultsActions}>
+            <TouchableOpacity
+              style={styles.primaryActionButton}
+              onPress={() => {
+                setCurrentCardIndex(0);
+                setIsFlipped(false);
+                setSwipeResults([]);
+                setActiveTab("study");
+              }}
+            >
+              <Text style={styles.primaryActionButtonText}>🔄 Study Again</Text>
+            </TouchableOpacity>
+
+            {notUnderstoodCount > 0 && (
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => {
+                  const notUnderstoodCards = selectedItems.filter(item =>
+                    swipeResults.find(r => r.cardId === item.id && !r.understood)
+                  );
+                  setSelectedItems(notUnderstoodCards);
                   setCurrentCardIndex(0);
                   setIsFlipped(false);
                   setSwipeResults([]);
-                  setCardTransform({ x: 0, rotation: 0 });
                   setActiveTab("study");
                 }}
-                className="w-full"
-                size="lg"
               >
-                <RotateCcw className="w-5 h-5 mr-2" />
-                もう一度学習する
-              </Button>
-              
-              {notUnderstoodCount > 0 && (
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    const notUnderstoodCards = selectedItems.filter(item => 
-                      swipeResults.find(r => r.cardId === item.id && !r.understood)
-                    );
-                    setSelectedItems(notUnderstoodCards);
-                    setCurrentCardIndex(0);
-                    setIsFlipped(false);
-                    setSwipeResults([]);
-                    setCardTransform({ x: 0, rotation: 0 });
-                    setActiveTab("study");
-                  }}
-                  className="w-full"
-                  size="lg"
-                >
-                  <XCircle className="w-5 h-5 mr-2" />
-                  分からないカードを復習 ({notUnderstoodCount})
-                </Button>
-              )}
-              
-              <Button 
-                variant="ghost"
-                onClick={() => setActiveTab("select")}
-                className="w-full"
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                カード選択に戻る
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+                <Text style={styles.secondaryActionButtonText}>
+                  ✗ Review Unknown Cards ({notUnderstoodCount})
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.ghostActionButton}
+              onPress={() => setActiveTab("select")}
+            >
+              <Text style={styles.ghostActionButtonText}>← Back to Selection</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
     );
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      {activeTab === "select" ? <SelectionScreen /> : 
+    <View style={styles.container}>
+      {activeTab === "select" ? <SelectionScreen /> :
        activeTab === "results" ? <ResultsScreen /> : <StudyScreen />}
-    </div>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  header: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  quickActionsGrid: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 24,
+  },
+  quickActionButton: {
+    flex: 1,
+    height: 64,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  quickActionButtonDisabled: {
+    opacity: 0.5,
+  },
+  quickActionIcon: {
+    fontSize: 20,
+  },
+  quickActionText: {
+    fontSize: 12,
+    color: "#000000",
+    textAlign: "center",
+  },
+  categorySection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 12,
+  },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  categoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    gap: 6,
+    maxWidth: "48%",
+  },
+  categoryButtonDisabled: {
+    opacity: 0.5,
+  },
+  categoryDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  categoryButtonText: {
+    fontSize: 12,
+    color: "#000000",
+    flex: 1,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.1)",
+    marginVertical: 24,
+  },
+  tabsContainer: {
+    marginBottom: 16,
+  },
+  tab: {
+    backgroundColor: "#030213",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  tabText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 32,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: "#666666",
+    textAlign: "center",
+  },
+  itemsList: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  itemCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+  },
+  itemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  languageBadge: {
+    backgroundColor: "#030213",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  languageBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  translationsBadge: {
+    backgroundColor: "#666666",
+  },
+  heartIcon: {
+    fontSize: 12,
+  },
+  toneBadge: {
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.2)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  toneBadgeText: {
+    fontSize: 10,
+    color: "#666666",
+  },
+  categoryBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  categoryBadgeText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  dateText: {
+    fontSize: 10,
+    color: "#666666",
+    marginLeft: "auto",
+  },
+  itemSourceText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  translationsPreview: {
+    gap: 4,
+  },
+  translationPreviewText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  moreTranslationsText: {
+    fontSize: 10,
+    color: "#999999",
+  },
+  studyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  backButtonText: {
+    fontSize: 14,
+    color: "#030213",
+  },
+  progressInfo: {
+    alignItems: "center",
+  },
+  progressText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  progressSubtext: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  studyActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionButton: {
+    padding: 8,
+  },
+  actionButtonText: {
+    fontSize: 16,
+  },
+  swipeInstructions: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  swipeInstructionText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  progressIndicators: {
+    position: "absolute",
+    top: 120,
+    right: 16,
+    gap: 8,
+    zIndex: 10,
+  },
+  progressIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  progressIndicatorIcon: {
+    fontSize: 12,
+    color: "#10b981",
+  },
+  progressIndicatorText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  flashCardContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  flashCard: {
+    width: screenWidth - 64,
+    height: 320,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  flashCardContent: {
+    flex: 1,
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flashCardBadges: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+  flashCardText: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#000000",
+    textAlign: "center",
+    lineHeight: 28,
+    marginBottom: 16,
+  },
+  speakButton: {
+    backgroundColor: "#f3f3f5",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  speakButtonText: {
+    fontSize: 14,
+    color: "#030213",
+  },
+  tapHint: {
+    fontSize: 12,
+    color: "#666666",
+    textAlign: "center",
+  },
+  translationsScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  translationCard: {
+    backgroundColor: "rgba(243, 243, 245, 0.3)",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  translationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  translationLanguage: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  translationSpeakButton: {
+    padding: 4,
+  },
+  translationSpeakText: {
+    fontSize: 12,
+  },
+  translationText: {
+    fontSize: 14,
+    color: "#000000",
+    lineHeight: 20,
+  },
+  actionButtonsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(0, 0, 0, 0.1)",
+  },
+  actionButtonLarge: {
+    flex: 1,
+    maxWidth: 120,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 4,
+  },
+  dontKnowButton: {
+    backgroundColor: "#fee2e2",
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+  },
+  knowButton: {
+    backgroundColor: "#dcfce7",
+    borderWidth: 1,
+    borderColor: "#86efac",
+  },
+  actionButtonLargeIcon: {
+    fontSize: 20,
+    color: "#000000",
+  },
+  actionButtonLargeText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  navigationButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: "#f3f3f5",
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navigationButtonText: {
+    fontSize: 16,
+    color: "#030213",
+  },
+  resultsContent: {
+    flex: 1,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overallStats: {
+    alignItems: "center",
+    backgroundColor: "rgba(243, 243, 245, 0.3)",
+    borderRadius: 12,
+    padding: 24,
+    marginBottom: 24,
+    width: "100%",
+    maxWidth: 300,
+  },
+  percentageText: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  percentageLabel: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  detailedResults: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 32,
+    width: "100%",
+    maxWidth: 300,
+  },
+  resultCard: {
+    flex: 1,
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 16,
+  },
+  resultIcon: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
+  resultNumber: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#000000",
+    marginBottom: 4,
+  },
+  resultLabel: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  resultsActions: {
+    width: "100%",
+    maxWidth: 300,
+    gap: 12,
+  },
+  primaryActionButton: {
+    backgroundColor: "#030213",
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  primaryActionButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  secondaryActionButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#030213",
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  secondaryActionButtonText: {
+    color: "#030213",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  ghostActionButton: {
+    backgroundColor: "transparent",
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  ghostActionButtonText: {
+    color: "#666666",
+    fontSize: 14,
+  },
+});

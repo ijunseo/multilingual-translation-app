@@ -1,22 +1,21 @@
-import { Card } from "./ui/card";
-import { ScrollArea } from "./ui/scroll-area";
-import { Checkbox } from "./ui/checkbox";
-import { Label } from "./ui/label";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Switch,
+  Alert,
+  Modal,
+} from "react-native";
 import { Button } from "./ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Badge } from "./ui/badge";
-import { Separator } from "./ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "./ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
-import { toast } from "sonner@2.0.3";
-import { Download, FileText, Crown, Star, Check, Zap, AlertTriangle, RefreshCw, X } from "lucide-react";
-import { LanguageOrdering } from "./LanguageOrdering";
 
-export type TranslationDirection = 
-  | "ja-to-en-ko"   // Japanese -> English, Korean
-  | "ko-to-ja-en"   // Korean -> Japanese, English  
-  | "en-to-ja-ko"   // English -> Japanese, Korean
-  | "all-to-all";   // All directions (default)
+export type TranslationDirection =
+  | "ja-to-en-ko"
+  | "ko-to-ja-en"
+  | "en-to-ja-ko"
+  | "all-to-all";
 
 interface Language {
   code: string;
@@ -90,624 +89,813 @@ export function MobileSettings({
   onCancelSubscription,
   onReactivateSubscription,
 }: MobileSettingsProps) {
-  
+  const [selectedTab, setSelectedTab] = useState<"languages" | "subscription" | "export">("languages");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+
   const getCurrentPlan = () => {
     return subscriptionPlans.find(plan => plan.id === userSubscription.planId) || subscriptionPlans[0];
   };
 
-  const handleLanguageChange = (languageCode: string, checked: boolean) => {
-    if (!checked && enabledLanguages.length <= 2) {
-      toast.error("At least 2 languages must be enabled");
+  const handleLanguageToggle = (languageCode: string) => {
+    if (enabledLanguages.includes(languageCode) && enabledLanguages.length <= 2) {
+      Alert.alert("Error", "At least 2 languages must be enabled");
       return;
     }
     onLanguageToggle(languageCode);
-    
-    if (checked) {
-      toast.success(`${allLanguages.find(l => l.code === languageCode)?.name} enabled`);
-    } else {
-      toast.success(`${allLanguages.find(l => l.code === languageCode)?.name} disabled`);
-    }
   };
 
-  const handleUpgrade = (planId: 'basic' | 'premium', billingCycle: 'monthly' | 'yearly') => {
-    onUpgradeSubscription(planId, billingCycle);
-    toast.success(`Upgraded to ${planId === 'basic' ? 'Basic' : 'Premium'} plan!`);
+  const handleUpgrade = (planId: 'basic' | 'premium') => {
+    Alert.alert(
+      "Upgrade Subscription",
+      `Are you sure you want to upgrade to ${planId === 'basic' ? 'Basic' : 'Premium'} plan?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Upgrade",
+          onPress: () => {
+            onUpgradeSubscription(planId, billingCycle);
+            Alert.alert("Success", `Upgraded to ${planId === 'basic' ? 'Basic' : 'Premium'} plan!`);
+          }
+        }
+      ]
+    );
   };
 
   const handleCancelSubscription = (immediate: boolean = false) => {
-    onCancelSubscription(immediate);
-    if (immediate) {
-      toast.success("Subscription cancelled immediately");
-    } else {
-      toast.success("Subscription will be cancelled at the end of the current period");
-    }
+    Alert.alert(
+      "Cancel Subscription",
+      immediate
+        ? "Are you sure you want to cancel your subscription immediately? You'll lose access to premium features right away."
+        : "Your subscription will remain active until the end of your current billing period. You'll still have access to all features until then.",
+      [
+        { text: "Keep Subscription", style: "cancel" },
+        {
+          text: immediate ? "Cancel Now" : "Cancel at Period End",
+          style: "destructive",
+          onPress: () => {
+            onCancelSubscription(immediate);
+            Alert.alert(
+              "Subscription Cancelled",
+              immediate
+                ? "Your subscription has been cancelled immediately"
+                : "Your subscription will be cancelled at the end of the current period"
+            );
+          }
+        }
+      ]
+    );
   };
 
   const handleReactivateSubscription = () => {
     onReactivateSubscription();
-    toast.success("Subscription reactivated successfully!");
+    Alert.alert("Success", "Subscription reactivated successfully!");
   };
 
-
-
-  const generatePhrasebookPDF = async () => {
+  const generatePhrasebookPDF = () => {
     if (phrasebook.length === 0) {
-      toast.error("No phrases in phrasebook to export");
+      Alert.alert("Error", "No phrases in phrasebook to export");
       return;
     }
 
     const currentPlan = getCurrentPlan();
     if (!currentPlan.pdfExport) {
-      toast.error("PDF export is only available for Basic and Premium plans");
+      Alert.alert("Error", "PDF export is only available for Basic and Premium plans");
       return;
     }
 
-    try {
-      // Create HTML content for the PDF
-      const htmlContent = generatePhrasebookHTML();
-      
-      // Create a temporary window for printing
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        toast.error("Please allow pop-ups to export PDF");
-        return;
-      }
-
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      
-      // Wait for content to load, then print
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-          toast.success("PDF export window opened! Use your browser's print dialog to save as PDF.");
-        }, 500);
-      };
-      
-    } catch (error) {
-      console.error("PDF generation failed:", error);
-      toast.error("Failed to generate PDF. Please try again.");
-    }
+    Alert.alert("Export PDF", "PDF export feature would open here in a real app");
   };
 
-  const generatePhrasebookHTML = () => {
-    // Group phrases by category
-    const categorizedPhrases = phrasebookCategories.map(category => ({
-      category,
-      phrases: phrasebook.filter(phrase => phrase.category === category.id)
-    })).filter(group => group.phrases.length > 0);
+  const renderLanguageSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Translation Languages</Text>
+      <Text style={styles.sectionDescription}>
+        Select which languages to include in translations. At least 2 languages must be enabled.
+      </Text>
 
-    // Add uncategorized phrases
-    const uncategorizedPhrases = phrasebook.filter(phrase => 
-      !phrase.category || !phrasebookCategories.find(cat => cat.id === phrase.category)
+      <View style={styles.languageList}>
+        {allLanguages.map((language) => (
+          <View key={language.code} style={styles.languageItem}>
+            <View style={styles.languageInfo}>
+              <Text style={styles.languageName}>{language.nativeName}</Text>
+              <Text style={styles.languageSubname}>{language.name}</Text>
+            </View>
+            <Switch
+              value={enabledLanguages.includes(language.code)}
+              onValueChange={() => handleLanguageToggle(language.code)}
+              trackColor={{ false: "#f3f3f5", true: "#030213" }}
+              thumbColor={enabledLanguages.includes(language.code) ? "#ffffff" : "#ffffff"}
+            />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderSubscriptionSettings = () => {
+    const currentPlan = getCurrentPlan();
+
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Subscription</Text>
+        <Text style={styles.sectionDescription}>
+          Upgrade your plan to unlock more features and increase your phrasebook limit.
+        </Text>
+
+        {/* Current Plan Status */}
+        <View style={styles.planCard}>
+          <View style={styles.planHeader}>
+            <View style={styles.planInfo}>
+              <Text style={styles.planIcon}>
+                {userSubscription.planId === 'free' ? '⭐' :
+                 userSubscription.planId === 'basic' ? '⚡' : '👑'}
+              </Text>
+              <View>
+                <Text style={styles.planName}>{currentPlan.name} Plan</Text>
+                <Text style={styles.planUsage}>
+                  {phrasebook.length} / {currentPlan.phrasebookLimit} phrases used
+                </Text>
+              </View>
+            </View>
+            <View style={[
+              styles.planBadge,
+              userSubscription.planId === 'free' ? styles.planBadgeSecondary :
+              userSubscription.willCancelAt ? styles.planBadgeDestructive : styles.planBadgeDefault
+            ]}>
+              <Text style={styles.planBadgeText}>
+                {userSubscription.planId === 'free' ? 'Free' :
+                 userSubscription.willCancelAt ? 'Cancelling' : 'Active'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Subscription Status */}
+          {userSubscription.expiresAt && !userSubscription.willCancelAt && (
+            <Text style={styles.expirationText}>
+              Expires: {userSubscription.expiresAt.toLocaleDateString()}
+            </Text>
+          )}
+
+          {userSubscription.willCancelAt && (
+            <View style={styles.warningContainer}>
+              <Text style={styles.warningIcon}>⚠️</Text>
+              <View>
+                <Text style={styles.warningTitle}>Subscription Cancelled</Text>
+                <Text style={styles.warningSubtitle}>
+                  Will downgrade to Free on {userSubscription.willCancelAt.toLocaleDateString()}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Plan Features */}
+          <View style={styles.planFeatures}>
+            <View style={styles.featureItem}>
+              <Text style={styles.featureIcon}>✓</Text>
+              <Text style={styles.featureText}>Up to {currentPlan.phrasebookLimit} saved phrases</Text>
+            </View>
+            <View style={styles.featureItem}>
+              <Text style={styles.featureIcon}>{currentPlan.pdfExport ? '✓' : '×'}</Text>
+              <Text style={[
+                styles.featureText,
+                !currentPlan.pdfExport && styles.featureTextDisabled
+              ]}>
+                PDF Export
+              </Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.planActions}>
+            {userSubscription.planId === 'free' && !userSubscription.cancelledAt && (
+              <>
+                <TouchableOpacity
+                  style={[styles.upgradeButton, styles.upgradeButtonOutline]}
+                  onPress={() => handleUpgrade('basic')}
+                >
+                  <Text style={styles.upgradeButtonTextOutline}>
+                    ⚡ Upgrade to Basic (¥580/month)
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.upgradeButton}
+                  onPress={() => handleUpgrade('premium')}
+                >
+                  <Text style={styles.upgradeButtonText}>
+                    👑 Upgrade to Premium (¥1,800/month)
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {(userSubscription.planId === 'basic' || userSubscription.planId === 'premium') && !userSubscription.willCancelAt && (
+              <>
+                {userSubscription.planId === 'basic' && (
+                  <TouchableOpacity
+                    style={styles.upgradeButton}
+                    onPress={() => handleUpgrade('premium')}
+                  >
+                    <Text style={styles.upgradeButtonText}>
+                      👑 Upgrade to Premium (¥1,800/month)
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.upgradeButton, styles.upgradeButtonOutline]}
+                  onPress={() => handleCancelSubscription(false)}
+                >
+                  <Text style={styles.upgradeButtonTextOutline}>Cancel Subscription</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {userSubscription.willCancelAt && (
+              <TouchableOpacity
+                style={styles.upgradeButton}
+                onPress={handleReactivateSubscription}
+              >
+                <Text style={styles.upgradeButtonText}>
+                  🔄 Reactivate Subscription
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Billing Cycle Toggle */}
+        {userSubscription.planId === 'free' && (
+          <View style={styles.billingCycleContainer}>
+            <Text style={styles.billingCycleTitle}>Billing Cycle</Text>
+            <View style={styles.billingCycleToggle}>
+              <TouchableOpacity
+                style={[
+                  styles.billingCycleOption,
+                  billingCycle === 'monthly' && styles.billingCycleOptionActive
+                ]}
+                onPress={() => setBillingCycle('monthly')}
+              >
+                <Text style={[
+                  styles.billingCycleOptionText,
+                  billingCycle === 'monthly' && styles.billingCycleOptionTextActive
+                ]}>
+                  Monthly
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.billingCycleOption,
+                  billingCycle === 'yearly' && styles.billingCycleOptionActive
+                ]}
+                onPress={() => setBillingCycle('yearly')}
+              >
+                <Text style={[
+                  styles.billingCycleOptionText,
+                  billingCycle === 'yearly' && styles.billingCycleOptionTextActive
+                ]}>
+                  Yearly
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Pricing Plans */}
+        {userSubscription.planId === 'free' && (
+          <View style={styles.pricingPlans}>
+            <Text style={styles.pricingTitle}>Choose Your Plan</Text>
+            {subscriptionPlans.slice(1).map((plan) => (
+              <View key={plan.id} style={styles.pricingCard}>
+                <View style={styles.pricingHeader}>
+                  <Text style={styles.pricingPlanName}>{plan.name}</Text>
+                  <Text style={styles.pricingPrice}>
+                    ¥{billingCycle === 'monthly'
+                      ? plan.monthlyPrice.toLocaleString() + '/month'
+                      : plan.yearlyPrice.toLocaleString() + '/year'
+                    }
+                  </Text>
+                </View>
+                {billingCycle === 'yearly' && (
+                  <Text style={styles.pricingSavings}>
+                    Save ¥{(plan.monthlyPrice * 12 - plan.yearlyPrice).toLocaleString()}
+                  </Text>
+                )}
+                <View style={styles.pricingFeatures}>
+                  <View style={styles.pricingFeature}>
+                    <Text style={styles.pricingFeatureIcon}>✓</Text>
+                    <Text style={styles.pricingFeatureText}>{plan.phrasebookLimit} saved phrases</Text>
+                  </View>
+                  <View style={styles.pricingFeature}>
+                    <Text style={styles.pricingFeatureIcon}>✓</Text>
+                    <Text style={styles.pricingFeatureText}>PDF Export</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.pricingButton,
+                    plan.id === 'premium' ? styles.pricingButtonPrimary : styles.pricingButtonSecondary
+                  ]}
+                  onPress={() => handleUpgrade(plan.id as 'basic' | 'premium')}
+                >
+                  <Text style={[
+                    styles.pricingButtonText,
+                    plan.id === 'premium' ? styles.pricingButtonTextPrimary : styles.pricingButtonTextSecondary
+                  ]}>
+                    Choose {plan.name}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
     );
-    if (uncategorizedPhrases.length > 0) {
-      categorizedPhrases.push({
-        category: { id: 'uncategorized', name: 'Uncategorized', color: '#666666', createdAt: new Date() },
-        phrases: uncategorizedPhrases
-      });
-    }
+  };
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>My Phrasebook</title>
-        <style>
-          @page {
-            margin: 20mm;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            margin: 0;
-            padding: 0;
-          }
-          .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid #eee;
-          }
-          .title {
-            font-size: 28px;
-            font-weight: bold;
-            margin: 0 0 10px 0;
-            color: #030213;
-          }
-          .date {
-            font-size: 14px;
-            color: #666;
-            margin: 0;
-          }
-          .category {
-            margin: 30px 0 20px 0;
-            page-break-inside: avoid;
-          }
-          .category-header {
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #ddd;
-            color: #030213;
-          }
-          .phrase {
-            margin: 20px 0;
-            padding: 15px;
-            background: #fafafa;
-            border-radius: 8px;
-            page-break-inside: avoid;
-          }
-          .source-lang, .target-lang {
-            margin: 8px 0;
-          }
-          .lang-label {
-            font-weight: bold;
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 4px;
-          }
-          .lang-text {
-            font-size: 16px;
-            line-height: 1.4;
-            margin-left: 10px;
-          }
-          .source-text {
-            color: #030213;
-            font-weight: 500;
-          }
-          .translation-text {
-            color: #333;
-          }
-          .stats {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 12px;
-            color: #888;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1 class="title">My Phrasebook</h1>
-          <p class="date">Generated on ${new Date().toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          })}</p>
-        </div>
+  const renderExportSettings = () => {
+    const currentPlan = getCurrentPlan();
 
-        ${categorizedPhrases.map(group => `
-          <div class="category">
-            <h2 class="category-header">${group.category.name}</h2>
-            ${group.phrases.map(phrase => {
-              const sourceLang = allLanguages.find(lang => lang.code === phrase.sourceLanguage);
-              return `
-                <div class="phrase">
-                  <div class="source-lang">
-                    <div class="lang-label">${sourceLang?.nativeName || phrase.sourceLanguage}</div>
-                    <div class="lang-text source-text">${phrase.sourceText}</div>
-                  </div>
-                  ${Object.entries(phrase.translations).map(([langCode, translation]) => {
-                    const lang = allLanguages.find(l => l.code === langCode);
-                    if (!lang || !translation.trim()) return '';
-                    return `
-                      <div class="target-lang">
-                        <div class="lang-label">${lang.nativeName}</div>
-                        <div class="lang-text translation-text">${translation}</div>
-                      </div>
-                    `;
-                  }).join('')}
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `).join('')}
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Export</Text>
+        <Text style={styles.sectionDescription}>
+          Export your saved phrases and phrasebook data.
+        </Text>
 
-        <div class="stats">
-          <p>Total phrases: ${phrasebook.length} | Categories: ${categorizedPhrases.length}</p>
-        </div>
-      </body>
-      </html>
-    `;
+        <View style={styles.exportCard}>
+          <View style={styles.exportHeader}>
+            <View style={styles.exportInfo}>
+              <Text style={styles.exportIcon}>📄</Text>
+              <View>
+                <Text style={styles.exportTitle}>Export Phrasebook as PDF</Text>
+                <Text style={styles.exportSubtitle}>
+                  {phrasebook.length} phrases ready for export
+                </Text>
+              </View>
+            </View>
+            <View style={[
+              styles.exportBadge,
+              currentPlan.pdfExport ? styles.exportBadgeAvailable : styles.exportBadgePremium
+            ]}>
+              <Text style={styles.exportBadgeText}>
+                {currentPlan.pdfExport ? "Available" : "Premium Only"}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.exportButton,
+              (!currentPlan.pdfExport || phrasebook.length === 0) && styles.exportButtonDisabled
+            ]}
+            onPress={generatePhrasebookPDF}
+            disabled={!currentPlan.pdfExport || phrasebook.length === 0}
+          >
+            <Text style={[
+              styles.exportButtonText,
+              (!currentPlan.pdfExport || phrasebook.length === 0) && styles.exportButtonTextDisabled
+            ]}>
+              📥 {!currentPlan.pdfExport
+                ? "Upgrade to Export PDF"
+                : phrasebook.length === 0
+                  ? "No Phrases to Export"
+                  : `Export PDF (${phrasebook.length} phrases)`
+              }
+            </Text>
+          </TouchableOpacity>
+
+          {!currentPlan.pdfExport && (
+            <Text style={styles.exportDisclaimer}>
+              PDF export is available with Basic and Premium plans
+            </Text>
+          )}
+        </View>
+      </View>
+    );
   };
 
   return (
-    <div className="flex-1 flex flex-col">
+    <View style={styles.container}>
       {/* Header */}
-      <div className="flex items-center justify-center p-4 border-b border-border">
-        <h2 className="text-lg font-medium">Settings</h2>
-      </div>
-      
-      {/* Settings Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-6">
-          {/* Language Selection Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-medium mb-2">Translation Languages</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Select which languages to include in translations. At least 2 languages must be enabled.
-              </p>
-            </div>
-            
-            <LanguageOrdering
-              allLanguages={allLanguages}
-              languageOrder={languageOrder}
-              onLanguageOrderChange={onLanguageOrderChange}
-            />
-          </div>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Settings</Text>
+      </View>
 
-          {/* Language Order Section */}
-          <div className="space-y-4 pt-6 border-t border-border">
-            <div>
-              <h3 className="text-base font-medium mb-2">Language Order</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Customize the order languages appear in translation results and interface.
-              </p>
-            </div>
-            
-            <LanguageOrdering
-              allLanguages={allLanguages}
-              languageOrder={languageOrder}
-              onLanguageOrderChange={onLanguageOrderChange}
-            />
-          </div>
+      {/* Tabs */}
+      <View style={styles.tabs}>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === "languages" && styles.tabActive]}
+          onPress={() => setSelectedTab("languages")}
+        >
+          <Text style={[styles.tabText, selectedTab === "languages" && styles.tabTextActive]}>
+            Languages
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === "subscription" && styles.tabActive]}
+          onPress={() => setSelectedTab("subscription")}
+        >
+          <Text style={[styles.tabText, selectedTab === "subscription" && styles.tabTextActive]}>
+            Subscription
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === "export" && styles.tabActive]}
+          onPress={() => setSelectedTab("export")}
+        >
+          <Text style={[styles.tabText, selectedTab === "export" && styles.tabTextActive]}>
+            Export
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-          {/* Export Section */}
-          <div className="space-y-4 pt-6 border-t border-border">
-            <div>
-              <h3 className="text-base font-medium mb-2">Export</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Export your saved phrases and phrasebook data.
-              </p>
-            </div>
-            
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-red-600 dark:text-red-400" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Export Phrasebook as PDF</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {phrasebook.length} phrases ready for export
-                    </p>
-                  </div>
-                </div>
-                <Badge variant={getCurrentPlan().pdfExport ? "default" : "secondary"}>
-                  {getCurrentPlan().pdfExport ? "Available" : "Premium Only"}
-                </Badge>
-              </div>
-              
-              <Button
-                onClick={generatePhrasebookPDF}
-                disabled={phrasebook.length === 0 || !getCurrentPlan().pdfExport}
-                variant="outline"
-                className="w-full"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
-              
-              {!getCurrentPlan().pdfExport && (
-                <p className="text-xs text-muted-foreground mt-2 text-center">
-                  PDF export is available with Basic and Premium plans
-                </p>
-              )}
-            </Card>
-          </div>
-
-          {/* Subscription Section */}
-          <div className="space-y-4 pt-6 border-t border-border">
-            <div>
-              <h3 className="text-base font-medium mb-2">Subscription</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Upgrade your plan to unlock more features and increase your phrasebook limit.
-              </p>
-            </div>
-
-            {/* Current Plan Status */}
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    userSubscription.planId === 'free' ? 'bg-muted' :
-                    userSubscription.planId === 'basic' ? 'bg-blue-100' : 'bg-purple-100'
-                  }`}>
-                    {userSubscription.planId === 'free' ? (
-                      <Star className="w-5 h-5 text-muted-foreground" />
-                    ) : userSubscription.planId === 'basic' ? (
-                      <Zap className="w-5 h-5 text-blue-600" />
-                    ) : (
-                      <Crown className="w-5 h-5 text-purple-600" />
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="font-medium">{getCurrentPlan().name} Plan</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {phrasebook.length} / {getCurrentPlan().phrasebookLimit} phrases used
-                    </p>
-                  </div>
-                </div>
-                <Badge variant={
-                  userSubscription.planId === 'free' ? 'secondary' : 
-                  userSubscription.willCancelAt ? 'destructive' : 'default'
-                }>
-                  {userSubscription.planId === 'free' ? 'Free' : 
-                   userSubscription.willCancelAt ? 'Cancelling' : 'Active'}
-                </Badge>
-              </div>
-
-              {/* Subscription Status Info */}
-              <div className="space-y-2 mb-4">
-                {userSubscription.expiresAt && !userSubscription.willCancelAt && (
-                  <p className="text-xs text-muted-foreground">
-                    Expires: {userSubscription.expiresAt.toLocaleDateString()}
-                  </p>
-                )}
-                
-                {userSubscription.willCancelAt && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-2">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <div>
-                        <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                          Subscription Cancelled
-                        </p>
-                        <p className="text-xs text-amber-600 dark:text-amber-300">
-                          Will downgrade to Free on {userSubscription.willCancelAt.toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {userSubscription.cancelledAt && userSubscription.planId === 'free' && (
-                  <div className="bg-muted rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">
-                      Subscription cancelled on {userSubscription.cancelledAt.toLocaleDateString()}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Plan Features */}
-              <div className="space-y-2 mb-4">
-                <div className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-green-500" />
-                  <span>Up to {getCurrentPlan().phrasebookLimit} saved phrases</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  {getCurrentPlan().pdfExport ? (
-                    <Check className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <span className="w-4 h-4 text-muted-foreground">×</span>
-                  )}
-                  <span className={getCurrentPlan().pdfExport ? '' : 'text-muted-foreground'}>
-                    PDF Export
-                  </span>
-                </div>
-              </div>
-
-              {/* Subscription Management Buttons */}
-              <div className="space-y-2">
-                {userSubscription.planId === 'free' && !userSubscription.cancelledAt && (
-                  <>
-                    <Button
-                      onClick={() => handleUpgrade('basic', 'monthly')}
-                      className="w-full"
-                      variant="outline"
-                    >
-                      <Zap className="w-4 h-4 mr-2" />
-                      Upgrade to Basic (¥580/month)
-                    </Button>
-                    <Button
-                      onClick={() => handleUpgrade('premium', 'monthly')}
-                      className="w-full"
-                    >
-                      <Crown className="w-4 h-4 mr-2" />
-                      Upgrade to Premium (¥1,800/month)
-                    </Button>
-                  </>
-                )}
-
-                {userSubscription.planId === 'basic' && !userSubscription.willCancelAt && (
-                  <>
-                    <Button
-                      onClick={() => handleUpgrade('premium', 'monthly')}
-                      className="w-full mb-2"
-                    >
-                      <Crown className="w-4 h-4 mr-2" />
-                      Upgrade to Premium (¥1,800/month)
-                    </Button>
-                    <div className="flex gap-2">
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" className="flex-1">
-                            Cancel Subscription
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Cancel Subscription</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Your subscription will remain active until the end of your current billing period ({userSubscription.expiresAt?.toLocaleDateString()}). You'll still have access to all features until then.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Keep Subscription</AlertDialogCancel>
-                            <AlertDialogAction 
-                              onClick={() => handleCancelSubscription(false)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Cancel at Period End
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </>
-                )}
-
-                {userSubscription.planId === 'premium' && !userSubscription.willCancelAt && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="w-full">
-                        Cancel Subscription
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Cancel Premium Subscription</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Your subscription will remain active until the end of your current billing period ({userSubscription.expiresAt?.toLocaleDateString()}). You'll still have access to all Premium features until then.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep Subscription</AlertDialogCancel>
-                        <AlertDialogAction 
-                          onClick={() => handleCancelSubscription(false)}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                          Cancel at Period End
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
-
-                {userSubscription.willCancelAt && (
-                  <Button
-                    onClick={handleReactivateSubscription}
-                    className="w-full"
-                    variant="default"
-                  >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Reactivate Subscription
-                  </Button>
-                )}
-              </div>
-            </Card>
-
-            {/* Pricing Plans */}
-            {userSubscription.planId === 'free' && (
-              <Card className="p-4">
-                <h4 className="font-medium mb-4">Choose Your Plan</h4>
-                <Tabs defaultValue="monthly" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="monthly">Monthly</TabsTrigger>
-                    <TabsTrigger value="yearly">Yearly</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="monthly" className="space-y-4 mt-4">
-                    {subscriptionPlans.slice(1).map((plan) => (
-                      <div key={plan.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-medium">{plan.name}</h5>
-                          <span className="font-bold">¥{plan.monthlyPrice.toLocaleString()}/month</span>
-                        </div>
-                        <div className="space-y-1 mb-3">
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Check className="w-3 h-3" />
-                            {plan.phrasebookLimit} saved phrases
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Check className="w-3 h-3" />
-                            PDF Export
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() => handleUpgrade(plan.id as 'basic' | 'premium', 'monthly')}
-                          size="sm"
-                          className="w-full"
-                          variant={plan.id === 'premium' ? 'default' : 'outline'}
-                        >
-                          Choose {plan.name}
-                        </Button>
-                      </div>
-                    ))}
-                  </TabsContent>
-                  
-                  <TabsContent value="yearly" className="space-y-4 mt-4">
-                    {subscriptionPlans.slice(1).map((plan) => (
-                      <div key={plan.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-medium">{plan.name}</h5>
-                          <div className="text-right">
-                            <span className="font-bold">¥{plan.yearlyPrice.toLocaleString()}/year</span>
-                            <p className="text-xs text-green-600">
-                              Save ¥{(plan.monthlyPrice * 12 - plan.yearlyPrice).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="space-y-1 mb-3">
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Check className="w-3 h-3" />
-                            {plan.phrasebookLimit} saved phrases
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Check className="w-3 h-3" />
-                            PDF Export
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() => handleUpgrade(plan.id as 'basic' | 'premium', 'yearly')}
-                          size="sm"
-                          className="w-full"
-                          variant={plan.id === 'premium' ? 'default' : 'outline'}
-                        >
-                          Choose {plan.name}
-                        </Button>
-                      </div>
-                    ))}
-                  </TabsContent>
-                </Tabs>
-              </Card>
-            )}
-
-            {/* PDF Export Section */}
-            <Card className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h4 className="font-medium">Phrasebook Export</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Export your saved phrases as a PDF document
-                  </p>
-                </div>
-                {getCurrentPlan().pdfExport && (
-                  <FileText className="w-5 h-5 text-muted-foreground" />
-                )}
-              </div>
-              
-              <Button
-                onClick={generatePhrasebookPDF}
-                disabled={!getCurrentPlan().pdfExport || phrasebook.length === 0}
-                className="w-full"
-                variant="outline"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                {!getCurrentPlan().pdfExport 
-                  ? "Upgrade to Export PDF" 
-                  : phrasebook.length === 0 
-                    ? "No Phrases to Export"
-                    : `Export PDF (${phrasebook.length} phrases)`
-                }
-              </Button>
-              
-              {!getCurrentPlan().pdfExport && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  PDF export is available with Basic and Premium plans
-                </p>
-              )}
-            </Card>
-          </div>
-        </div>
-      </ScrollArea>
-    </div>
+      {/* Content */}
+      <ScrollView style={styles.content}>
+        {selectedTab === "languages" && renderLanguageSettings()}
+        {selectedTab === "subscription" && renderSubscriptionSettings()}
+        {selectedTab === "export" && renderExportSettings()}
+      </ScrollView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  header: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  tabs: {
+    flexDirection: "row",
+    backgroundColor: "#f3f3f5",
+    margin: 16,
+    borderRadius: 8,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignItems: "center",
+  },
+  tabActive: {
+    backgroundColor: "#ffffff",
+  },
+  tabText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  tabTextActive: {
+    color: "#030213",
+    fontWeight: "500",
+  },
+  content: {
+    flex: 1,
+  },
+  section: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  sectionDescription: {
+    fontSize: 14,
+    color: "#666666",
+    marginBottom: 16,
+  },
+  languageList: {
+    gap: 12,
+  },
+  languageItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+  },
+  languageInfo: {
+    flex: 1,
+  },
+  languageName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  languageSubname: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  planCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  planHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  planInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  planIcon: {
+    fontSize: 20,
+  },
+  planName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  planUsage: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  planBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  planBadgeSecondary: {
+    backgroundColor: "#f3f3f5",
+  },
+  planBadgeDefault: {
+    backgroundColor: "#030213",
+  },
+  planBadgeDestructive: {
+    backgroundColor: "#ef4444",
+  },
+  planBadgeText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#ffffff",
+  },
+  expirationText: {
+    fontSize: 12,
+    color: "#666666",
+    marginBottom: 8,
+  },
+  warningContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fef3c7",
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+    gap: 8,
+  },
+  warningIcon: {
+    fontSize: 16,
+  },
+  warningTitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#92400e",
+  },
+  warningSubtitle: {
+    fontSize: 10,
+    color: "#92400e",
+  },
+  planFeatures: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  featureItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  featureIcon: {
+    fontSize: 14,
+    color: "#10b981",
+  },
+  featureText: {
+    fontSize: 14,
+    color: "#000000",
+  },
+  featureTextDisabled: {
+    color: "#666666",
+  },
+  planActions: {
+    gap: 8,
+  },
+  upgradeButton: {
+    backgroundColor: "#030213",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  upgradeButtonOutline: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#030213",
+  },
+  upgradeButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  upgradeButtonTextOutline: {
+    color: "#030213",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  billingCycleContainer: {
+    marginBottom: 16,
+  },
+  billingCycleTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  billingCycleToggle: {
+    flexDirection: "row",
+    backgroundColor: "#f3f3f5",
+    borderRadius: 8,
+    padding: 4,
+  },
+  billingCycleOption: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 6,
+  },
+  billingCycleOptionActive: {
+    backgroundColor: "#ffffff",
+  },
+  billingCycleOptionText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  billingCycleOptionTextActive: {
+    color: "#030213",
+    fontWeight: "500",
+  },
+  pricingPlans: {
+    gap: 12,
+  },
+  pricingTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 12,
+  },
+  pricingCard: {
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    borderRadius: 12,
+    padding: 16,
+  },
+  pricingHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  pricingPlanName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  pricingPrice: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#000000",
+  },
+  pricingSavings: {
+    fontSize: 12,
+    color: "#10b981",
+    textAlign: "right",
+    marginBottom: 8,
+  },
+  pricingFeatures: {
+    gap: 4,
+    marginBottom: 12,
+  },
+  pricingFeature: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  pricingFeatureIcon: {
+    fontSize: 12,
+    color: "#10b981",
+  },
+  pricingFeatureText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  pricingButton: {
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  pricingButtonPrimary: {
+    backgroundColor: "#030213",
+  },
+  pricingButtonSecondary: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#030213",
+  },
+  pricingButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  pricingButtonTextPrimary: {
+    color: "#ffffff",
+  },
+  pricingButtonTextSecondary: {
+    color: "#030213",
+  },
+  exportCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 16,
+  },
+  exportHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  exportInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  exportIcon: {
+    fontSize: 20,
+  },
+  exportTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  exportSubtitle: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  exportBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  exportBadgeAvailable: {
+    backgroundColor: "#030213",
+  },
+  exportBadgePremium: {
+    backgroundColor: "#f3f3f5",
+  },
+  exportBadgeText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#ffffff",
+  },
+  exportButton: {
+    backgroundColor: "#030213",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  exportButtonDisabled: {
+    backgroundColor: "#f3f3f5",
+  },
+  exportButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  exportButtonTextDisabled: {
+    color: "#666666",
+  },
+  exportDisclaimer: {
+    fontSize: 12,
+    color: "#666666",
+    textAlign: "center",
+  },
+});
