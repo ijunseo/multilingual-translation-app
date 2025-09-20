@@ -1,15 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
-import { MobileSourceLanguageSelector } from "./components/MobileSourceLanguageSelector";
-import { MobileToneSelector } from "./components/MobileToneSelector";
-import { MobileTranslationInput } from "./components/MobileTranslationInput";
-import { MultiTranslationOutput } from "./components/MultiTranslationOutput";
-import { MobileHistoryWithPhrasebook } from "./components/MobileHistoryWithPhrasebook";
-import { MobileSettings, TranslationDirection } from "./components/MobileSettings";
-import { MobileFlashCard } from "./components/MobileFlashCard";
-import { BottomNavigation } from "./components/BottomNavigation";
-import { Button } from "./components/ui/button";
-import { Toaster } from "./components/ui/sonner";
-import { translationService } from "./services/translation";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, StyleSheet, StatusBar, SafeAreaView, TouchableWithoutFeedback, Keyboard, Alert, Platform, Linking } from "react-native";
+import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
+import * as Device from 'expo-device';
+import { MobileSourceLanguageSelector } from "./src/components/MobileSourceLanguageSelector";
+import { MobileToneSelector } from "./src/components/MobileToneSelector";
+import { MobileTranslationInput } from "./src/components/MobileTranslationInput";
+import { MultiTranslationOutput } from "./src/components/MultiTranslationOutput";
+import { MobileHistoryWithPhrasebook } from "./src/components/MobileHistoryWithPhrasebook";
+import { MobileSettings, TranslationDirection } from "./src/components/MobileSettings";
+import { MobileFlashCard } from "./src/components/MobileFlashCard";
+import { BottomNavigation } from "./src/components/BottomNavigation";
+import { translationService } from "./src/services/translation";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Language {
   code: string;
@@ -27,11 +30,11 @@ interface TranslationTone {
 interface MultiTranslationHistoryItem {
   id: string;
   sourceText: string;
-  translations: Record<string, string>; // language code -> translation
+  translations: Record<string, string>;
   sourceLanguage: string;
   timestamp: Date;
-  category?: string; // Optional category for phrasebook items
-  tone?: string; // Translation tone used
+  category?: string;
+  tone?: string;
 }
 
 interface PhrasebookCategory {
@@ -55,12 +58,14 @@ interface UserSubscription {
   isActive: boolean;
   expiresAt: Date | null;
   cancelledAt: Date | null;
-  willCancelAt: Date | null; // For scheduled cancellations
+  willCancelAt: Date | null;
 }
 
 const languages: Language[] = [
   { code: "ja", name: "Japanese", nativeName: "日本語" },
   { code: "ko", name: "Korean", nativeName: "한국어" },
+  { code: "zh-cn", name: "Chinese (Simplified)", nativeName: "简体中文" },
+  { code: "zh-tw", name: "Chinese (Traditional)", nativeName: "繁體中文" },
   { code: "en-us", name: "English (US)", nativeName: "English (US)" },
   { code: "en-uk", name: "English (UK)", nativeName: "English (UK)" },
   { code: "en-au", name: "English (Australia)", nativeName: "English (Australia)" },
@@ -68,8 +73,6 @@ const languages: Language[] = [
 
 const translationTones: TranslationTone[] = [
   { id: "casual", name: "Casual", description: "Relaxed and friendly", icon: "" },
-  { id: "neutral", name: "Neutral", description: "Standard and balanced", icon: "" },
-  { id: "semi-formal", name: "Semi-formal", description: "Polite and professional", icon: "" },
   { id: "formal", name: "Formal", description: "Official and respectful", icon: "" },
 ];
 
@@ -115,8 +118,8 @@ export default function App() {
     { id: "daily", name: "Daily Conversation", color: "#ef4444", createdAt: new Date() },
   ]);
   const [translationDirection, setTranslationDirection] = useState<TranslationDirection>("all-to-all");
-  const [enabledLanguages, setEnabledLanguages] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]); // Default: all languages enabled
-  const [languageOrder, setLanguageOrder] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]); // Language display order
+  const [enabledLanguages, setEnabledLanguages] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]);
+  const [languageOrder, setLanguageOrder] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]);
   const [userSubscription, setUserSubscription] = useState<UserSubscription>({
     planId: 'free',
     isActive: true,
@@ -125,36 +128,68 @@ export default function App() {
     willCancelAt: null,
   });
   const [selectedTone, setSelectedTone] = useState<string>("casual");
-  const [isDarkMode] = useState(true); // Always dark mode
+  const [isListening, setIsListening] = useState(false);
+  const [recognitionPermission, setRecognitionPermission] = useState<boolean | null>(null);
 
-  // Get ordered languages based on user preference
+  // マイク権限の初期化と詳細チェック
+  useEffect(() => {
+    const initializePermissions = async () => {
+      try {
+        if (Platform.OS === 'ios' || Platform.OS === 'android') {
+          console.log('Initializing permissions for mobile device...');
+
+          // 音声録音権限をリクエスト
+          const audioPermissions = await Audio.requestPermissionsAsync();
+          console.log('Audio permission status:', audioPermissions.status);
+
+          if (audioPermissions.status === 'granted') {
+            setRecognitionPermission(true);
+            console.log('Audio permission granted');
+          } else {
+            setRecognitionPermission(false);
+            console.log('Audio permission denied or not determined');
+          }
+        } else {
+          // Web環境
+          if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+            setRecognitionPermission(true);
+          } else {
+            setRecognitionPermission(false);
+          }
+        }
+      } catch (error) {
+        console.error('Permission initialization error:', error);
+        setRecognitionPermission(false);
+      }
+    };
+
+    initializePermissions();
+  }, []);
+
+
   const getOrderedLanguages = useCallback((): Language[] => {
     const orderedLangs: Language[] = [];
-    
-    // Add languages in the specified order
+
     languageOrder.forEach(langCode => {
       const lang = languages.find(l => l.code === langCode);
       if (lang) {
         orderedLangs.push(lang);
       }
     });
-    
-    // Add any missing languages (in case new languages are added)
+
     languages.forEach(lang => {
       if (!orderedLangs.find(l => l.code === lang.code)) {
         orderedLangs.push(lang);
       }
     });
-    
+
     return orderedLangs;
   }, [languageOrder]);
 
-  // Get target languages (all languages except source)
   const getTargetLanguages = useCallback((sourceLang: Language): Language[] => {
     return getOrderedLanguages().filter(lang => lang.code !== sourceLang.code);
   }, [getOrderedLanguages]);
 
-  // Get filtered target languages (based on enabled languages and excluding source)
   const getFilteredTargetLanguages = useCallback((sourceLang: Language): Language[] => {
     return getTargetLanguages(sourceLang).filter(lang => enabledLanguages.includes(lang.code));
   }, [getTargetLanguages, enabledLanguages]);
@@ -190,19 +225,16 @@ export default function App() {
     if (!sourceText.trim()) return;
 
     setIsLoading(true);
-    
+
     try {
-      // Simulate API delay
       await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Always translate to all languages for history, but filter display
+
       const allTargetLangs = getTargetLanguages(sourceLanguage);
       const allTargetCodes = allTargetLangs.map(lang => lang.code);
       const results = await mockMultiTranslate(sourceText, sourceLanguage.code, allTargetCodes, selectedTone);
-      
+
       setTranslations(results);
-      
-      // Add to history (save all translations)
+
       const historyItem: MultiTranslationHistoryItem = {
         id: Date.now().toString(),
         sourceText,
@@ -211,8 +243,8 @@ export default function App() {
         timestamp: new Date(),
         tone: selectedTone,
       };
-      
-      setHistory(prev => [historyItem, ...prev.slice(0, 19)]); // Keep last 20 items
+
+      setHistory(prev => [historyItem, ...prev.slice(0, 19)]);
     } catch (error) {
       console.error("Translation failed:", error);
     } finally {
@@ -225,12 +257,11 @@ export default function App() {
       const newEnabled = prev.includes(languageCode)
         ? prev.filter(code => code !== languageCode)
         : [...prev, languageCode];
-      
-      // Ensure at least 2 languages are always enabled
+
       if (newEnabled.length < 2) {
-        return prev; // Don't change if it would result in less than 2 languages
+        return prev;
       }
-      
+
       return newEnabled;
     });
   };
@@ -239,175 +270,37 @@ export default function App() {
     setLanguageOrder(newOrder);
   };
 
-  // Auto-adjust source language if it becomes disabled
   useEffect(() => {
     if (!enabledLanguages.includes(sourceLanguage.code)) {
       const firstEnabledLang = getOrderedLanguages().find(lang => enabledLanguages.includes(lang.code));
       if (firstEnabledLang) {
         setSourceLanguage(firstEnabledLang);
-        setSourceText(""); // Clear text when changing source language
-        setTranslations({}); // Clear translations
+        setSourceText("");
+        setTranslations({});
       }
     }
   }, [enabledLanguages, sourceLanguage.code, getOrderedLanguages]);
 
-  // Auto-translate when source text changes
   useEffect(() => {
     if (sourceText.trim()) {
       const timeoutId = setTimeout(() => {
         handleTranslate();
       }, 500);
-      
+
       return () => clearTimeout(timeoutId);
     } else {
       setTranslations({});
     }
   }, [sourceText, sourceLanguage, selectedTone, handleTranslate]);
 
-  // Save phrasebook to localStorage
-  useEffect(() => {
-    localStorage.setItem("phrasebook", JSON.stringify(phrasebook));
-  }, [phrasebook]);
-
-  // Save phrasebook categories to localStorage
-  useEffect(() => {
-    localStorage.setItem("phrasebookCategories", JSON.stringify(phrasebookCategories));
-  }, [phrasebookCategories]);
-
-  // Load phrasebook from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("phrasebook");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Convert timestamp strings back to Date objects
-        const phrasebookWithDates = parsed.map((item: any) => ({
-          ...item,
-          timestamp: new Date(item.timestamp)
-        }));
-        setPhrasebook(phrasebookWithDates);
-      } catch (error) {
-        console.error("Failed to load phrasebook from localStorage:", error);
-      }
-    }
-  }, []);
-
-  // Load phrasebook categories from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("phrasebookCategories");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const categoriesWithDates = parsed.map((category: any) => ({
-          ...category,
-          createdAt: new Date(category.createdAt)
-        }));
-        setPhrasebookCategories(categoriesWithDates);
-      } catch (error) {
-        console.error("Failed to load phrasebook categories from localStorage:", error);
-      }
-    }
-  }, []);
-
-  // Save enabled languages to localStorage
-  useEffect(() => {
-    localStorage.setItem("enabledLanguages", JSON.stringify(enabledLanguages));
-  }, [enabledLanguages]);
-
-  // Load enabled languages from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("enabledLanguages");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 2) {
-          setEnabledLanguages(parsed);
-        }
-      } catch (error) {
-        console.error("Failed to load enabled languages from localStorage:", error);
-      }
-    }
-  }, []);
-
-  // Save language order to localStorage
-  useEffect(() => {
-    localStorage.setItem("languageOrder", JSON.stringify(languageOrder));
-  }, [languageOrder]);
-
-  // Load language order from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("languageOrder");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setLanguageOrder(parsed);
-        }
-      } catch (error) {
-        console.error("Failed to load language order from localStorage:", error);
-      }
-    }
-  }, []);
-
-  // Save subscription to localStorage
-  useEffect(() => {
-    localStorage.setItem("userSubscription", JSON.stringify(userSubscription));
-  }, [userSubscription]);
-
-  // Load subscription from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("userSubscription");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const subscriptionWithDate = {
-          ...parsed,
-          expiresAt: parsed.expiresAt ? new Date(parsed.expiresAt) : null,
-          cancelledAt: parsed.cancelledAt ? new Date(parsed.cancelledAt) : null,
-          willCancelAt: parsed.willCancelAt ? new Date(parsed.willCancelAt) : null,
-        };
-        setUserSubscription(subscriptionWithDate);
-      } catch (error) {
-        console.error("Failed to load subscription from localStorage:", error);
-      }
-    }
-  }, []);
-
-  // Save selected tone to localStorage
-  useEffect(() => {
-    localStorage.setItem("selectedTone", selectedTone);
-  }, [selectedTone]);
-
-  // Load selected tone from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("selectedTone");
-    if (saved && translationTones.some(tone => tone.id === saved)) {
-      setSelectedTone(saved);
-    }
-  }, []);
-
-  // Apply light mode (remove dark class)
-  useEffect(() => {
-    document.documentElement.classList.remove('dark');
-  }, []);
-
-  // Check subscription status periodically
-  useEffect(() => {
-    checkSubscriptionStatus();
-    
-    // Check every hour
-    const interval = setInterval(checkSubscriptionStatus, 60 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [userSubscription.expiresAt, userSubscription.willCancelAt]);
-
   const handleHistorySelect = (item: MultiTranslationHistoryItem) => {
     const sourceLang = getOrderedLanguages().find(lang => lang.code === item.sourceLanguage);
-    
+
     if (sourceLang) {
       setSourceLanguage(sourceLang);
       setSourceText(item.sourceText);
       setTranslations(item.translations);
-      setActiveTab("translate"); // Switch to translate tab
+      setActiveTab("translate");
     }
   };
 
@@ -415,11 +308,9 @@ export default function App() {
     setHistory([]);
   };
 
-  // Check if subscription should be downgraded due to expiration or cancellation
   const checkSubscriptionStatus = () => {
     const now = new Date();
-    
-    // If subscription is cancelled and cancellation date has passed
+
     if (userSubscription.willCancelAt && now >= userSubscription.willCancelAt) {
       setUserSubscription({
         planId: 'free',
@@ -428,13 +319,11 @@ export default function App() {
         cancelledAt: userSubscription.cancelledAt,
         willCancelAt: null,
       });
-      
-      // Handle phrasebook limit when downgrading to free
+
       handlePhrasebookDowngrade('free');
       return;
     }
-    
-    // If subscription has expired
+
     if (userSubscription.expiresAt && now >= userSubscription.expiresAt && !userSubscription.willCancelAt) {
       setUserSubscription(prev => ({
         planId: 'free',
@@ -443,29 +332,24 @@ export default function App() {
         cancelledAt: now,
         willCancelAt: null,
       }));
-      
-      // Handle phrasebook limit when downgrading to free
+
       handlePhrasebookDowngrade('free');
     }
   };
 
-  // Handle phrasebook when downgrading plan
   const handlePhrasebookDowngrade = (newPlanId: 'free' | 'basic' | 'premium') => {
     const newPlan = subscriptionPlans.find(plan => plan.id === newPlanId);
     if (!newPlan) return;
 
     if (phrasebook.length > newPlan.phrasebookLimit) {
-      // Keep only the most recently added phrases within the new limit
       setPhrasebook(prev => prev.slice(0, newPlan.phrasebookLimit));
     }
   };
 
-  // Get current subscription plan
   const getCurrentPlan = () => {
     return subscriptionPlans.find(plan => plan.id === userSubscription.planId) || subscriptionPlans[0];
   };
 
-  // Check if user can add more phrases to phrasebook
   const canAddToPhrasebook = () => {
     const currentPlan = getCurrentPlan();
     return phrasebook.length < currentPlan.phrasebookLimit;
@@ -475,17 +359,13 @@ export default function App() {
     setPhrasebook(prev => {
       const exists = prev.find(p => p.id === item.id);
       if (exists) {
-        // Remove from phrasebook
         return prev.filter(p => p.id !== item.id);
       } else {
-        // Check subscription limits before adding
         const currentPlan = getCurrentPlan();
         if (prev.length >= currentPlan.phrasebookLimit) {
-          // Show upgrade prompt or error
-          return prev; // Don't add if limit exceeded
+          return prev;
         }
-        
-        // Add to phrasebook with optional category
+
         const itemWithCategory = {
           ...item,
           category: categoryId || "general"
@@ -493,6 +373,33 @@ export default function App() {
         return [itemWithCategory, ...prev];
       }
     });
+  };
+
+  const saveCurrentTranslation = () => {
+    if (!sourceText.trim() || Object.keys(translations).length === 0) {
+      return;
+    }
+
+    if (!canAddToPhrasebook()) {
+      Alert.alert(
+        "Phrasebook Limit Reached",
+        `Phrasebook limit reached (${getCurrentPlan().phrasebookLimit} phrases). Upgrade to add more.`
+      );
+      return;
+    }
+
+    const newItem: MultiTranslationHistoryItem = {
+      id: Date.now().toString(),
+      sourceText,
+      translations,
+      sourceLanguage: sourceLanguage.code,
+      timestamp: new Date(),
+      tone: selectedTone,
+      category: "general"
+    };
+
+    setPhrasebook(prev => [newItem, ...prev]);
+    Alert.alert("Success", "Translation saved to phrasebook!");
   };
 
   const removeFromPhrasebook = (id: string) => {
@@ -511,9 +418,9 @@ export default function App() {
   };
 
   const updatePhrasebookCategory = (id: string, name: string, color: string) => {
-    setPhrasebookCategories(prev => 
-      prev.map(category => 
-        category.id === id 
+    setPhrasebookCategories(prev =>
+      prev.map(category =>
+        category.id === id
           ? { ...category, name, color }
           : category
       )
@@ -521,24 +428,23 @@ export default function App() {
   };
 
   const deletePhrasebookCategory = (id: string) => {
-    if (id === "general") return; // Cannot delete general category
-    
-    // Move all items in this category to general
-    setPhrasebook(prev => 
-      prev.map(item => 
-        item.category === id 
+    if (id === "general") return;
+
+    setPhrasebook(prev =>
+      prev.map(item =>
+        item.category === id
           ? { ...item, category: "general" }
           : item
       )
     );
-    
+
     setPhrasebookCategories(prev => prev.filter(category => category.id !== id));
   };
 
   const moveToCategory = (itemId: string, categoryId: string) => {
-    setPhrasebook(prev => 
-      prev.map(item => 
-        item.id === itemId 
+    setPhrasebook(prev =>
+      prev.map(item =>
+        item.id === itemId
           ? { ...item, category: categoryId }
           : item
       )
@@ -546,13 +452,12 @@ export default function App() {
   };
 
   const upgradeSubscription = (planId: 'basic' | 'premium', billingCycle: 'monthly' | 'yearly') => {
-    // In a real app, this would handle payment processing
     const newSubscription: UserSubscription = {
       planId,
       isActive: true,
-      expiresAt: billingCycle === 'monthly' 
-        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-        : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 365 days
+      expiresAt: billingCycle === 'monthly'
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       cancelledAt: null,
       willCancelAt: null,
     };
@@ -563,9 +468,8 @@ export default function App() {
     if (userSubscription.planId === 'free') return;
 
     const now = new Date();
-    
+
     if (immediate) {
-      // Immediate cancellation - downgrade to free now
       setUserSubscription({
         planId: 'free',
         isActive: true,
@@ -573,11 +477,9 @@ export default function App() {
         cancelledAt: now,
         willCancelAt: null,
       });
-      
-      // Handle phrasebook limit when downgrading immediately
+
       handlePhrasebookDowngrade('free');
     } else {
-      // Schedule cancellation at end of current period
       setUserSubscription(prev => ({
         ...prev,
         cancelledAt: now,
@@ -596,25 +498,161 @@ export default function App() {
     }));
   };
 
-  const speak = (text: string, language: string) => {
-    if ('speechSynthesis' in window && text) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      // Map language codes to speech synthesis language codes
-      const speechLangMap: Record<string, string> = {
-        'ja': 'ja-JP',
-        'ko': 'ko-KR',
-        'en-us': 'en-US',
-        'en-uk': 'en-GB',
-        'en-au': 'en-AU',
-      };
-      utterance.lang = speechLangMap[language] || language;
-      window.speechSynthesis.speak(utterance);
+  const handleVoiceInput = async () => {
+    if (recognitionPermission === null) {
+      Alert.alert('音声認識', '音声認識の初期化中です。少しお待ちください。');
+      return;
+    }
+
+    if (recognitionPermission === false) {
+      Alert.alert(
+        '🎤 マイク権限が必要です',
+        '音声認識機能を使用するには、マイク権限を許可してください。',
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          {
+            text: '権限を再取得',
+            onPress: async () => {
+              console.log('Requesting audio permissions...');
+              const { status, canAskAgain } = await Audio.requestPermissionsAsync();
+              console.log('Permission result:', { status, canAskAgain });
+
+              if (status === 'granted') {
+                setRecognitionPermission(true);
+                Alert.alert('✅ 権限が許可されました', 'マイクボタンをタップして音声認識をお試しください！');
+              } else if (!canAskAgain) {
+                // 権限が永続的に拒否された場合
+                Alert.alert(
+                  '⚙️ 設定で権限を有効にしてください',
+                  `アプリの設定でマイク権限を有効にしてください：\n\n${Platform.OS === 'ios' ?
+                    '設定 > プライバシーとセキュリティ > マイク > このアプリ' :
+                    '設定 > アプリ > このアプリ > 権限 > マイク'
+                  }`,
+                  [
+                    { text: 'キャンセル', style: 'cancel' },
+                    {
+                      text: '設定を開く',
+                      onPress: () => {
+                        if (Platform.OS === 'ios') {
+                          Linking.openURL('app-settings:');
+                        } else {
+                          Linking.openSettings();
+                        }
+                      }
+                    }
+                  ]
+                );
+              } else {
+                Alert.alert(
+                  '📱 代替手段をご利用ください',
+                  Platform.OS === 'ios' ?
+                    'キーボードのマイクボタンをタップして音声入力をご利用ください。\n\n設定 > 一般 > キーボード > 音声入力を有効にしてください。' :
+                    'キーボードのマイクボタンをタップして音声入力をご利用ください。'
+                );
+              }
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    try {
+      if (Platform.OS === 'web') {
+        // Web環境での音声認識
+        if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+          const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+
+          if (isListening) {
+            setIsListening(false);
+            return;
+          }
+
+          const recognition = new SpeechRecognition();
+          const locale = sourceLanguage.code === 'ja' ? 'ja-JP' :
+                        sourceLanguage.code === 'ko' ? 'ko-KR' :
+                        sourceLanguage.code === 'en-us' ? 'en-US' :
+                        sourceLanguage.code === 'en-uk' ? 'en-GB' :
+                        sourceLanguage.code === 'en-au' ? 'en-AU' : 'en-US';
+
+          recognition.lang = locale;
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
+          recognition.continuous = false;
+
+          recognition.onstart = () => setIsListening(true);
+          recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setSourceText(transcript);
+            setIsListening(false);
+          };
+          recognition.onerror = (event: any) => {
+            setIsListening(false);
+            Alert.alert('音声認識エラー', '音声認識に失敗しました');
+          };
+          recognition.onend = () => setIsListening(false);
+
+          recognition.start();
+          Alert.alert('音声認識', `${sourceLanguage.nativeName}で話してください...`);
+        }
+      } else {
+        // iOS/Android: 権限が許可されている場合
+        Alert.alert(
+          '🎤 音声認識機能について',
+          `マイク権限は許可されていますが、現在Expoアプリでの音声認識には制限があります。\n\n代替手段として以下をご利用ください：\n\n📱 キーボードのマイクボタン\n${Platform.OS === 'ios' ?
+            '⚙️ 設定 > 一般 > キーボード > 音声入力\n🎤 Siriディクテーション（長押し）' :
+            '🎤 Googleアシスタントの音声入力'
+          }`,
+          [
+            { text: 'キャンセル', style: 'cancel' },
+            {
+              text: 'キーボード音声入力を使用',
+              style: 'default',
+              onPress: () => {
+                Alert.alert(
+                  '📝 使用方法',
+                  'テキスト入力フィールドをタップしてキーボードを表示し、マイクボタンをタップしてください。'
+                );
+              }
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      setIsListening(false);
+      console.error('Voice input error:', error);
+      Alert.alert('音声認識エラー', '音声認識の操作に失敗しました');
     }
   };
 
-  const handleVoiceInput = () => {
-    // Voice input functionality would be implemented here
-    console.log("Voice input requested");
+  const handleSpeak = async (text: string, language?: string) => {
+    if (!text.trim()) return;
+
+    try {
+      // まず現在再生中の音声を停止
+      await Speech.stop();
+
+      // 言語コードをexpo-speechで使用できる形式に変換
+      const speechLang = language === 'ja' ? 'ja' :
+                        language === 'ko' ? 'ko' :
+                        language === 'zh-cn' ? 'zh-CN' :
+                        language === 'zh-tw' ? 'zh-TW' :
+                        language === 'en-us' ? 'en-US' :
+                        language === 'en-uk' ? 'en-GB' :
+                        language === 'en-au' ? 'en-AU' : 'en-US';
+
+      const options = {
+        language: speechLang,
+        pitch: 1.0,
+        rate: 0.75, // iOS向けに少し遅めに調整
+        quality: Speech.VoiceQuality.Enhanced,
+      };
+
+      await Speech.speak(text, options);
+    } catch (error) {
+      console.error('Speech error:', error);
+      Alert.alert('音声読み上げエラー', '音声の再生に失敗しました');
+    }
   };
 
   const getPlaceholder = (lang: Language) => {
@@ -629,63 +667,64 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Top Navigation Bar */}
-      <div className="safe-area-pt bg-background/80 backdrop-blur-lg border-b border-border">
-        <div className="flex items-center justify-center py-4 px-4">
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-medium">My Phrases</h1>
-          </div>
-        </div>
-      </div>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col pb-20">
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>My Phrases</Text>
+        </View>
+      </View>
+
+      <View style={styles.mainContent}>
         {activeTab === "translate" ? (
-          <div className="flex-1 flex flex-col">
-            {/* Language Selection */}
-            <div className="py-4">
-              <MobileSourceLanguageSelector
-                languages={getOrderedLanguages().filter(lang => enabledLanguages.includes(lang.code))}
-                sourceLanguage={sourceLanguage}
-                onSourceLanguageChange={setSourceLanguage}
-                translationDirection={translationDirection}
-              />
-            </div>
+          <View style={styles.translateTab}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={styles.inputArea}>
+                <View style={styles.languageSection}>
+                  <MobileSourceLanguageSelector
+                    languages={getOrderedLanguages()}
+                    sourceLanguage={sourceLanguage}
+                    onSourceLanguageChange={setSourceLanguage}
+                    translationDirection={translationDirection}
+                  />
+                </View>
 
-            {/* Tone Selection */}
-            <div className="px-4 pb-4">
-              <MobileToneSelector
-                tones={translationTones}
-                selectedTone={selectedTone}
-                onToneChange={setSelectedTone}
-              />
-            </div>
+                <View style={styles.toneSection}>
+                  <MobileToneSelector
+                    tones={translationTones}
+                    selectedTone={selectedTone}
+                    onToneChange={setSelectedTone}
+                  />
+                </View>
 
-            {/* Translation Input */}
-            <div className="flex-1 px-4">
-              <MobileTranslationInput
-                value={sourceText}
-                onChange={setSourceText}
-                placeholder={getPlaceholder(sourceLanguage)}
-                onVoiceInput={handleVoiceInput}
-                onSpeak={() => speak(sourceText, sourceLanguage.code)}
-                isLoading={isLoading}
-              />
-            </div>
+                <View style={styles.inputSection}>
+                  <MobileTranslationInput
+                    value={sourceText}
+                    onChange={setSourceText}
+                    placeholder={getPlaceholder(sourceLanguage)}
+                    onVoiceInput={handleVoiceInput}
+                    onSpeak={handleSpeak}
+                    isLoading={isLoading}
+                    isListening={isListening}
+                  />
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
 
-            {/* Translation Output */}
-            <div className="flex-1 px-4 py-4">
+            <View style={styles.outputSection}>
               <MultiTranslationOutput
                 sourceText={sourceText}
                 sourceLanguage={sourceLanguage}
                 translations={translations}
                 targetLanguages={getFilteredTargetLanguages(sourceLanguage)}
                 isLoading={isLoading}
-                onSpeak={speak}
+                onSpeak={handleSpeak}
+                onSave={saveCurrentTranslation}
+                canSave={canAddToPhrasebook()}
               />
-            </div>
-          </div>
+            </View>
+          </View>
         ) : activeTab === "history" ? (
           <MobileHistoryWithPhrasebook
             history={history}
@@ -702,7 +741,7 @@ export default function App() {
             onMoveToCategory={moveToCategory}
             canAddToPhrasebook={canAddToPhrasebook}
             currentPlan={getCurrentPlan()}
-            onSpeak={speak}
+            onSpeak={handleSpeak}
           />
         ) : activeTab === "flashcard" ? (
           <MobileFlashCard
@@ -710,7 +749,7 @@ export default function App() {
             history={history}
             allLanguages={getOrderedLanguages()}
             phrasebookCategories={phrasebookCategories}
-            onSpeak={speak}
+            onSpeak={handleSpeak}
           />
         ) : (
           <MobileSettings
@@ -730,13 +769,62 @@ export default function App() {
             onReactivateSubscription={reactivateSubscription}
           />
         )}
-      </div>
+      </View>
 
-      {/* Bottom Navigation */}
       <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-      
-      {/* Toast Notifications */}
-      <Toaster />
-    </div>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  header: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#000000',
+  },
+  mainContent: {
+    flex: 1,
+    paddingBottom: 90,
+  },
+  translateTab: {
+    flex: 1,
+  },
+  inputArea: {
+    // Empty style - just a container for TouchableWithoutFeedback
+  },
+  languageSection: {
+    paddingVertical: 8,
+  },
+  toneSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  inputSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  outputSection: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 16,
+    minHeight: 300,
+    maxHeight: 500,
+  },
+});

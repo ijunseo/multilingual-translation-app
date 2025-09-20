@@ -1,25 +1,24 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  Alert
+} from "react-native";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
-import { Card } from "./ui/card";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "./ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
-import { Trash2, RotateCcw, Heart, Plus, FolderPlus, Edit3, MoreVertical, Folder, Search, X, Crown } from "lucide-react";
-import { ScrollArea } from "./ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { toast } from "sonner@2.0.3";
 
 interface MultiTranslationHistoryItem {
   id: string;
   sourceText: string;
-  translations: Record<string, string>; // language code -> translation
+  translations: Record<string, string>;
   sourceLanguage: string;
   timestamp: Date;
   category?: string;
-  tone?: string; // Translation tone used
+  tone?: string;
 }
 
 interface PhrasebookCategory {
@@ -38,19 +37,12 @@ interface SubscriptionPlan {
   yearlyPrice: number;
 }
 
-interface UserSubscription {
-  planId: 'free' | 'basic' | 'premium';
-  isActive: boolean;
-  expiresAt: Date | null;
-  cancelledAt: Date | null;
-  willCancelAt: Date | null;
-}
-
 interface MobileHistoryWithPhrasebookProps {
   history: MultiTranslationHistoryItem[];
   phrasebook: MultiTranslationHistoryItem[];
   phrasebookCategories: PhrasebookCategory[];
-  onSelectItem: (item: MultiTranslationHistoryItem) => void;
+  allLanguages: { code: string; name: string; nativeName: string }[];
+  onHistorySelect: (item: MultiTranslationHistoryItem) => void;
   onClearHistory: () => void;
   onToggleFavorite: (item: MultiTranslationHistoryItem, categoryId?: string) => void;
   onRemoveFromPhrasebook: (id: string) => void;
@@ -58,17 +50,17 @@ interface MobileHistoryWithPhrasebookProps {
   onUpdateCategory: (id: string, name: string, color: string) => void;
   onDeleteCategory: (id: string) => void;
   onMoveToCategory: (itemId: string, categoryId: string) => void;
-  allLanguages: { code: string; name: string; nativeName: string }[];
-  userSubscription: UserSubscription;
-  subscriptionPlans: SubscriptionPlan[];
   canAddToPhrasebook: () => boolean;
+  currentPlan: SubscriptionPlan;
+  onSpeak: (text: string, language: string) => void;
 }
 
 export function MobileHistoryWithPhrasebook({
   history,
   phrasebook,
   phrasebookCategories,
-  onSelectItem,
+  allLanguages,
+  onHistorySelect,
   onClearHistory,
   onToggleFavorite,
   onRemoveFromPhrasebook,
@@ -76,20 +68,17 @@ export function MobileHistoryWithPhrasebook({
   onUpdateCategory,
   onDeleteCategory,
   onMoveToCategory,
-  allLanguages,
-  userSubscription,
-  subscriptionPlans,
   canAddToPhrasebook,
+  currentPlan,
+  onSpeak,
 }: MobileHistoryWithPhrasebookProps) {
-  const [activeTab, setActiveTab] = useState("phrasebook");
+  const [activeTab, setActiveTab] = useState<"phrasebook" | "history">("phrasebook");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
-  const [isEditCategoryOpen, setIsEditCategoryOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<PhrasebookCategory | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newCategoryColor, setNewCategoryColor] = useState("#3b82f6");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryColor, setNewCategoryColor] = useState("#3b82f6");
 
   const getLanguageByCode = (code: string) => {
     return allLanguages.find(lang => lang.code === code);
@@ -107,21 +96,17 @@ export function MobileHistoryWithPhrasebook({
     const searchTerm = query.toLowerCase().trim();
     if (!searchTerm) return true;
 
-    // Search in source text
     if (item.sourceText.toLowerCase().includes(searchTerm)) return true;
 
-    // Search in translations
     const translationValues = Object.values(item.translations);
     if (translationValues.some(translation => translation.toLowerCase().includes(searchTerm))) return true;
 
-    // Search in language names
     const sourceLang = getLanguageByCode(item.sourceLanguage);
     if (sourceLang && (
       sourceLang.name.toLowerCase().includes(searchTerm) ||
       sourceLang.nativeName.toLowerCase().includes(searchTerm)
     )) return true;
 
-    // Search in category name for phrasebook items
     if (item.category) {
       const category = getCategoryById(item.category);
       if (category && category.name.toLowerCase().includes(searchTerm)) return true;
@@ -132,17 +117,15 @@ export function MobileHistoryWithPhrasebook({
 
   const getFilteredPhrasebook = () => {
     let filtered = phrasebook;
-    
-    // Filter by category
+
     if (selectedCategory !== "all") {
       filtered = filtered.filter(item => item.category === selectedCategory);
     }
-    
-    // Filter by search query
+
     if (searchQuery.trim()) {
       filtered = filtered.filter(item => searchInItem(item, searchQuery));
     }
-    
+
     return filtered;
   };
 
@@ -155,212 +138,151 @@ export function MobileHistoryWithPhrasebook({
     return phrasebook.filter(item => item.category === categoryId).length;
   };
 
-  const getCurrentPlan = () => {
-    return subscriptionPlans.find(plan => plan.id === userSubscription.planId) || subscriptionPlans[0];
-  };
-
-  const handleClearSearch = () => {
-    setSearchQuery("");
-    setIsSearchActive(false);
-  };
-
-  const handleSearchToggle = () => {
-    if (isSearchActive && searchQuery) {
-      handleClearSearch();
-    } else {
-      setIsSearchActive(!isSearchActive);
-    }
-  };
-
-  const predefinedColors = [
-    "#3b82f6", "#10b981", "#f59e0b", "#ef4444", 
-    "#8b5cf6", "#06b6d4", "#84cc16", "#f97316",
-    "#ec4899", "#6366f1", "#14b8a6", "#eab308"
-  ];
-
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
       onAddCategory(newCategoryName.trim(), newCategoryColor);
       setNewCategoryName("");
       setNewCategoryColor("#3b82f6");
-      setIsAddCategoryOpen(false);
-      toast.success("Category created successfully");
-    }
-  };
-
-  const handleEditCategory = () => {
-    if (editingCategory && newCategoryName.trim()) {
-      onUpdateCategory(editingCategory.id, newCategoryName.trim(), newCategoryColor);
-      setEditingCategory(null);
-      setNewCategoryName("");
-      setNewCategoryColor("#3b82f6");
-      setIsEditCategoryOpen(false);
-      toast.success("Category updated successfully");
+      setIsAddCategoryModalOpen(false);
     }
   };
 
   const handleDeleteCategory = (categoryId: string) => {
     if (categoryId === "general") {
-      toast.error("Cannot delete General category");
+      Alert.alert("Error", "Cannot delete General category");
       return;
     }
-    onDeleteCategory(categoryId);
-    if (selectedCategory === categoryId) {
-      setSelectedCategory("all");
-    }
-    toast.success("Category deleted successfully");
-  };
 
-  const openEditCategory = (category: PhrasebookCategory) => {
-    setEditingCategory(category);
-    setNewCategoryName(category.name);
-    setNewCategoryColor(category.color);
-    setIsEditCategoryOpen(true);
+    Alert.alert(
+      "Delete Category",
+      "Are you sure you want to delete this category? All items will be moved to General.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            onDeleteCategory(categoryId);
+            if (selectedCategory === categoryId) {
+              setSelectedCategory("all");
+            }
+          }
+        }
+      ]
+    );
   };
 
   const renderHistoryItem = (item: MultiTranslationHistoryItem, showRemoveFromPhrasebook = false) => {
     const sourceLang = getLanguageByCode(item.sourceLanguage);
     const isFavorite = isInPhrasebook(item.id);
     const category = item.category ? getCategoryById(item.category) : null;
-    
+
     return (
-      <div
+      <TouchableOpacity
         key={item.id}
-        className="bg-card rounded-2xl p-4 border border-border hover:bg-muted/30 transition-colors"
-        onClick={() => onSelectItem(item)}
+        style={styles.historyItem}
+        onPress={() => onHistorySelect(item)}
       >
-        {/* Source language indicator */}
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="text-xs bg-primary text-primary-foreground px-3 py-1 rounded-full">
-            {sourceLang?.nativeName || item.sourceLanguage}
-          </span>
-          <span className="text-xs text-muted-foreground">→</span>
-          <span className="text-xs text-muted-foreground">All languages</span>
-          
+        {/* Header */}
+        <View style={styles.historyItemHeader}>
+          <View style={styles.languageBadge}>
+            <Text style={styles.languageBadgeText}>
+              {sourceLang?.nativeName || item.sourceLanguage}
+            </Text>
+          </View>
+          <Text style={styles.arrowText}>→</Text>
+          <Text style={styles.targetText}>All languages</Text>
+
           {/* Tone badge */}
           {item.tone && (
-            <Badge variant="outline" className="text-xs">
-              {item.tone.charAt(0).toUpperCase() + item.tone.slice(1)} Style
-            </Badge>
+            <View style={styles.toneBadge}>
+              <Text style={styles.toneBadgeText}>
+                {item.tone.charAt(0).toUpperCase() + item.tone.slice(1)} Style
+              </Text>
+            </View>
           )}
-          
-          {/* Category badge for phrasebook items */}
+
+          {/* Category badge */}
           {showRemoveFromPhrasebook && category && (
-            <Badge 
-              variant="secondary" 
-              className="text-xs"
-              style={{ backgroundColor: `${category.color}20`, color: category.color }}
-            >
-              {category.name}
-            </Badge>
+            <View style={[styles.categoryBadge, { backgroundColor: `${category.color}20` }]}>
+              <Text style={[styles.categoryBadgeText, { color: category.color }]}>
+                {category.name}
+              </Text>
+            </View>
           )}
-          
-          <div className="ml-auto flex items-center gap-1">
-            {/* More options for phrasebook items */}
-            {showRemoveFromPhrasebook && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="w-8 h-8 rounded-full"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                    <Folder className="w-4 h-4 mr-2" />
-                    Move to Category
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {phrasebookCategories.map(cat => (
-                    <DropdownMenuItem 
-                      key={cat.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveToCategory(item.id, cat.id);
-                        toast.success(`Moved to ${cat.name}`);
-                      }}
-                      className="pl-6"
-                    >
-                      <div 
-                        className="w-3 h-3 rounded-full mr-2" 
-                        style={{ backgroundColor: cat.color }}
-                      />
-                      {cat.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            
+
+          <View style={styles.actionButtons}>
             {/* Favorite button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`w-8 h-8 rounded-full ${isFavorite ? 'text-red-500 hover:text-red-600' : 'text-muted-foreground hover:text-foreground'}`}
-              onClick={(e) => {
-                e.stopPropagation();
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
                 if (showRemoveFromPhrasebook) {
                   onRemoveFromPhrasebook(item.id);
-                  toast.success("Removed from phrasebook");
                 } else {
                   if (isFavorite) {
                     onToggleFavorite(item);
-                    toast.success("Removed from phrasebook");
                   } else {
-                    // Check if user can add to phrasebook
                     if (!canAddToPhrasebook()) {
-                      const currentPlan = getCurrentPlan();
-                      toast.error(`Phrasebook limit reached (${currentPlan.phrasebookLimit} phrases). Upgrade to add more.`);
+                      Alert.alert(
+                        "Phrasebook Limit Reached",
+                        `Phrasebook limit reached (${currentPlan.phrasebookLimit} phrases). Upgrade to add more.`
+                      );
                       return;
                     }
                     onToggleFavorite(item);
-                    toast.success("Added to phrasebook");
                   }
                 }
               }}
             >
-              <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
-            </Button>
-            
-            {/* Reuse button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-8 h-8 rounded-full"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectItem(item);
-              }}
-            >
-              <RotateCcw className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-        
-        {/* Source text */}
-        <p className="text-sm mb-3 line-clamp-2 font-medium">{item.sourceText}</p>
-        
-        {/* Translations */}
-        <div className="space-y-2 mb-3">
-          {Object.entries(item.translations).map(([langCode, translation]) => {
-            const lang = getLanguageByCode(langCode);
-            return (
-              <div key={langCode} className="flex items-start gap-2">
+              <Text style={[styles.actionButtonText, isFavorite && styles.favoriteActive]}>
+                {isFavorite ? "❤️" : "🤍"}
+              </Text>
+            </TouchableOpacity>
 
-                <p className="text-xs text-muted-foreground line-clamp-2 flex-1">
+            {/* Reuse button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onHistorySelect(item)}
+            >
+              <Text style={styles.actionButtonText}>🔄</Text>
+            </TouchableOpacity>
+
+            {/* Speak source text button */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onSpeak(item.sourceText, item.sourceLanguage)}
+            >
+              <Text style={styles.actionButtonText}>🔊</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Source text */}
+        <Text style={styles.sourceText} numberOfLines={2}>
+          {item.sourceText}
+        </Text>
+
+        {/* Translations */}
+        <View style={styles.translationsContainer}>
+          {Object.entries(item.translations).map(([langCode, translation]) => (
+            <View key={langCode} style={styles.translationItem}>
+              <View style={styles.translationContent}>
+                <Text style={styles.translationText} numberOfLines={2}>
                   {translation}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-        
+                </Text>
+                <TouchableOpacity
+                  style={styles.translationSpeakButton}
+                  onPress={() => onSpeak(translation, langCode)}
+                >
+                  <Text style={styles.translationSpeakButtonText}>🔊</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+
         {/* Timestamp */}
-        <p className="text-xs text-muted-foreground">
+        <Text style={styles.timestamp}>
           {item.timestamp.toLocaleString('en-US', {
             year: 'numeric',
             month: 'short',
@@ -368,413 +290,708 @@ export function MobileHistoryWithPhrasebook({
             hour: '2-digit',
             minute: '2-digit'
           })}
-        </p>
-      </div>
+        </Text>
+      </TouchableOpacity>
     );
   };
 
-  const EmptyState = ({ title, description, icon: Icon }: { title: string; description: string; icon: any }) => (
-    <div className="flex-1 flex items-center justify-center p-8">
-      <div className="text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-          <Icon className="w-8 h-8 text-muted-foreground" />
-        </div>
-        <h3 className="font-medium mb-2">{title}</h3>
-        <p className="text-muted-foreground text-sm">
-          {description}
-        </p>
-      </div>
-    </div>
+  const EmptyState = ({ title, description, icon }: { title: string; description: string; icon: string }) => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyIcon}>{icon}</Text>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyDescription}>{description}</Text>
+    </View>
   );
+
+  const predefinedColors = [
+    "#3b82f6", "#10b981", "#f59e0b", "#ef4444",
+    "#8b5cf6", "#06b6d4", "#84cc16", "#f97316",
+    "#ec4899", "#6366f1", "#14b8a6", "#eab308"
+  ];
 
   return (
-    <div className="flex-1 flex flex-col">
+    <View style={styles.container}>
       {/* Header */}
-      <div className="border-b border-border">
+      <View style={styles.header}>
         {isSearchActive ? (
-          <div className="flex items-center gap-2 p-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={`Search ${activeTab === "phrasebook" ? "phrasebook" : "history"}...`}
-                className="pl-10 pr-10"
-                autoFocus
-              />
-              {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 transform -translate-y-1/2 w-8 h-8"
-                  onClick={handleClearSearch}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleSearchToggle}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder={`Search ${activeTab === "phrasebook" ? "phrasebook" : "history"}...`}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={styles.searchCloseButton}
+              onPress={() => {
+                setSearchQuery("");
+                setIsSearchActive(false);
+              }}
             >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+              <Text style={styles.searchCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
-          <div className="flex items-center justify-between p-4">
-            <h2 className="text-lg font-medium">History & Phrasebook</h2>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleSearchToggle}
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>History & Phrasebook</Text>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.headerAction}
+                onPress={() => setIsSearchActive(true)}
               >
-                <Search className="w-4 h-4" />
-              </Button>
+                <Text style={styles.headerActionText}>🔍</Text>
+              </TouchableOpacity>
               {activeTab === "history" && history.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onClearHistory}
-                  className="text-destructive hover:text-destructive"
+                <TouchableOpacity
+                  style={styles.headerAction}
+                  onPress={() => {
+                    Alert.alert(
+                      "Clear History",
+                      "Are you sure you want to clear all history?",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Clear", style: "destructive", onPress: onClearHistory }
+                      ]
+                    );
+                  }}
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Clear
-                </Button>
+                  <Text style={styles.headerActionText}>🗑️</Text>
+                </TouchableOpacity>
               )}
-            </div>
-          </div>
+            </View>
+          </View>
         )}
-      </div>
+      </View>
 
       {/* Tabs */}
-      <Tabs 
-        value={activeTab} 
-        onValueChange={(value) => {
-          setActiveTab(value);
-          // Clear search when switching tabs
-          if (searchQuery) {
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "phrasebook" && styles.activeTab]}
+          onPress={() => {
+            setActiveTab("phrasebook");
             setSearchQuery("");
-          }
-        }} 
-        className="flex-1 flex flex-col"
-      >
-        <TabsList className="grid w-full grid-cols-2 mx-4 mt-4">
-          <TabsTrigger value="phrasebook">
+          }}
+        >
+          <Text style={[styles.tabText, activeTab === "phrasebook" && styles.activeTabText]}>
             Phrasebook
-            {phrasebook.length > 0 && (
-              <span className={`ml-1 text-xs rounded-full px-1.5 py-0.5 min-w-[20px] h-5 flex items-center justify-center ${
-                phrasebook.length >= getCurrentPlan().phrasebookLimit 
-                  ? 'bg-amber-500 text-white' 
-                  : 'bg-primary text-primary-foreground'
-              }`}>
-                {phrasebook.length}/{getCurrentPlan().phrasebookLimit}
-              </span>
+          </Text>
+          {phrasebook.length > 0 && (
+            <View style={[
+              styles.tabBadge,
+              phrasebook.length >= currentPlan.phrasebookLimit && styles.tabBadgeWarning
+            ]}>
+              <Text style={styles.tabBadgeText}>
+                {phrasebook.length}/{currentPlan.phrasebookLimit}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "history" && styles.activeTab]}
+          onPress={() => {
+            setActiveTab("history");
+            setSearchQuery("");
+          }}
+        >
+          <Text style={[styles.tabText, activeTab === "history" && styles.activeTabText]}>
+            History
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Content */}
+      {activeTab === "phrasebook" ? (
+        phrasebook.length === 0 ? (
+          <EmptyState
+            title="No saved phrases"
+            description="Tap the heart icon on any translation to save it to your phrasebook"
+            icon="❤️"
+          />
+        ) : (
+          <View style={styles.content}>
+            {/* Subscription warning */}
+            {phrasebook.length >= currentPlan.phrasebookLimit * 0.8 && (
+              <View style={[
+                styles.warningBanner,
+                phrasebook.length >= currentPlan.phrasebookLimit && styles.warningBannerError
+              ]}>
+                <Text style={styles.warningIcon}>👑</Text>
+                <View style={styles.warningTextContainer}>
+                  <Text style={styles.warningTitle}>
+                    {phrasebook.length >= currentPlan.phrasebookLimit
+                      ? 'Phrasebook limit reached!'
+                      : 'Phrasebook almost full'
+                    }
+                  </Text>
+                  <Text style={styles.warningSubtitle}>
+                    {phrasebook.length >= currentPlan.phrasebookLimit
+                      ? 'Upgrade to save more phrases'
+                      : `${currentPlan.phrasebookLimit - phrasebook.length} phrases remaining`
+                    }
+                  </Text>
+                </View>
+              </View>
             )}
-          </TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-        </TabsList>
 
-        <TabsContent value="phrasebook" className="flex-1 flex flex-col mt-0">
-          {phrasebook.length === 0 ? (
-            <EmptyState
-              title="No saved phrases"
-              description="Tap the heart icon on any translation to save it to your phrasebook"
-              icon={Heart}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col">
-              {/* Subscription Status Banner */}
-              {(phrasebook.length >= getCurrentPlan().phrasebookLimit * 0.8) && (
-                <div className={`mx-4 mt-4 p-3 rounded-lg border ${
-                  phrasebook.length >= getCurrentPlan().phrasebookLimit
-                    ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
-                    : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    <Crown className={`w-4 h-4 ${
-                      phrasebook.length >= getCurrentPlan().phrasebookLimit ? 'text-red-600' : 'text-amber-600'
-                    }`} />
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${
-                        phrasebook.length >= getCurrentPlan().phrasebookLimit 
-                          ? 'text-red-800 dark:text-red-200' 
-                          : 'text-amber-800 dark:text-amber-200'
-                      }`}>
-                        {phrasebook.length >= getCurrentPlan().phrasebookLimit
-                          ? 'Phrasebook limit reached!'
-                          : 'Phrasebook almost full'
-                        }
-                      </p>
-                      <p className={`text-xs ${
-                        phrasebook.length >= getCurrentPlan().phrasebookLimit 
-                          ? 'text-red-600 dark:text-red-300' 
-                          : 'text-amber-600 dark:text-amber-300'
-                      }`}>
-                        {phrasebook.length >= getCurrentPlan().phrasebookLimit
-                          ? 'Upgrade to save more phrases'
-                          : `${getCurrentPlan().phrasebookLimit - phrasebook.length} phrases remaining`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* Category Filter & Management - Hide when searching */}
-              {!searchQuery.trim() && (
-                <div className="p-4 border-b border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">
-                          All Categories ({phrasebook.length})
-                        </SelectItem>
-                        {phrasebookCategories.map(category => (
-                          <SelectItem key={category.id} value={category.id}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: category.color }}
-                              />
-                              {category.name} ({getCategoryItemCount(category.id)})
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                    <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="icon">
-                          <Plus className="w-4 h-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Add New Category</DialogTitle>
-                          <DialogDescription>
-                            Create a new category to organize your phrasebook items.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div>
-                            <Label htmlFor="categoryName">Category Name</Label>
-                            <Input
-                              id="categoryName"
-                              value={newCategoryName}
-                              onChange={(e) => setNewCategoryName(e.target.value)}
-                              placeholder="Enter category name"
-                            />
-                          </div>
-                          <div>
-                            <Label>Category Color</Label>
-                            <div className="grid grid-cols-6 gap-2 mt-2">
-                              {predefinedColors.map(color => (
-                                <button
-                                  key={color}
-                                  className={`w-8 h-8 rounded-full border-2 ${
-                                    newCategoryColor === color ? 'border-foreground' : 'border-border'
-                                  }`}
-                                  style={{ backgroundColor: color }}
-                                  onClick={() => setNewCategoryColor(color)}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setIsAddCategoryOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button onClick={handleAddCategory} disabled={!newCategoryName.trim()}>
-                            Add Category
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                  
-                  {/* Category chips */}
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSelectedCategory("all")}
-                      className={`px-3 py-1 rounded-full text-xs transition-colors ${
-                        selectedCategory === "all" 
-                          ? "bg-primary text-primary-foreground" 
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      }`}
-                    >
+            {/* Category Filter */}
+            {!searchQuery.trim() && (
+              <View style={styles.categoryFilter}>
+                <View style={styles.categoryHeader}>
+                  <Text style={styles.categoryTitle}>Categories</Text>
+                  <TouchableOpacity
+                    style={styles.addCategoryButton}
+                    onPress={() => setIsAddCategoryModalOpen(true)}
+                  >
+                    <Text style={styles.addCategoryText}>➕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryChips}>
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryChip,
+                      selectedCategory === "all" && styles.categoryChipActive
+                    ]}
+                    onPress={() => setSelectedCategory("all")}
+                  >
+                    <Text style={[
+                      styles.categoryChipText,
+                      selectedCategory === "all" && styles.categoryChipTextActive
+                    ]}>
                       All ({phrasebook.length})
-                    </button>
-                    {phrasebookCategories.map(category => (
-                      <div key={category.id} className="flex items-center gap-1">
-                        <button
-                          onClick={() => setSelectedCategory(category.id)}
-                          className={`px-3 py-1 rounded-full text-xs transition-colors flex items-center gap-1 ${
-                            selectedCategory === category.id 
-                              ? "text-white" 
-                              : "bg-muted text-muted-foreground hover:bg-muted/80"
-                          }`}
-                          style={{
-                            backgroundColor: selectedCategory === category.id ? category.color : undefined
-                          }}
-                        >
-                          <div 
-                            className={`w-2 h-2 rounded-full ${selectedCategory === category.id ? 'bg-white/30' : ''}`}
-                            style={{ 
-                              backgroundColor: selectedCategory === category.id ? 'white' : category.color 
-                            }}
-                          />
-                          {category.name} ({getCategoryItemCount(category.id)})
-                        </button>
-                        {category.id !== "general" && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="w-5 h-5 p-0">
-                                <MoreVertical className="w-3 h-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent>
-                              <DropdownMenuItem onClick={() => openEditCategory(category)}>
-                                <Edit3 className="w-4 h-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => handleDeleteCategory(category.id)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Search Results Info */}
-              {searchQuery.trim() && (
-                <div className="px-4 py-2 bg-muted/30 border-b border-border">
-                  <p className="text-sm text-muted-foreground">
-                    {getFilteredPhrasebook().length} results for "{searchQuery}"
-                  </p>
-                </div>
-              )}
-              
-              {/* Filtered Items */}
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-4">
-                  {getFilteredPhrasebook().map((item) => renderHistoryItem(item, true))}
-                  {getFilteredPhrasebook().length === 0 && !searchQuery.trim() && selectedCategory !== "all" && (
-                    <div className="text-center py-8">
-                      <Folder className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                      <p className="text-muted-foreground">No phrases in this category</p>
-                    </div>
-                  )}
-                  {getFilteredPhrasebook().length === 0 && searchQuery.trim() && (
-                    <div className="text-center py-8">
-                      <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                      <p className="text-muted-foreground">No phrases found for "{searchQuery}"</p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Try searching with different keywords or check spelling
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-              
-              {/* Edit Category Dialog */}
-              <Dialog open={isEditCategoryOpen} onOpenChange={setIsEditCategoryOpen}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Edit Category</DialogTitle>
-                    <DialogDescription>
-                      Modify the name and color of this category.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="editCategoryName">Category Name</Label>
-                      <Input
-                        id="editCategoryName"
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        placeholder="Enter category name"
-                      />
-                    </div>
-                    <div>
-                      <Label>Category Color</Label>
-                      <div className="grid grid-cols-6 gap-2 mt-2">
-                        {predefinedColors.map(color => (
-                          <button
-                            key={color}
-                            className={`w-8 h-8 rounded-full border-2 ${
-                              newCategoryColor === color ? 'border-foreground' : 'border-border'
-                            }`}
-                            style={{ backgroundColor: color }}
-                            onClick={() => setNewCategoryColor(color)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsEditCategoryOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleEditCategory} disabled={!newCategoryName.trim()}>
-                      Update Category
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          )}
-        </TabsContent>
+                    </Text>
+                  </TouchableOpacity>
 
-        <TabsContent value="history" className="flex-1 flex flex-col mt-0">
-          {history.length === 0 ? (
-            <EmptyState
-              title="No translation history"
-              description="Your translation history will appear here"
-              icon={RotateCcw}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col">
-              {/* Search Results Info */}
-              {searchQuery.trim() && (
-                <div className="px-4 py-2 bg-muted/30 border-b border-border">
-                  <p className="text-sm text-muted-foreground">
-                    {getFilteredHistory().length} results for "{searchQuery}"
-                  </p>
-                </div>
+                  {phrasebookCategories.map(category => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[
+                        styles.categoryChip,
+                        selectedCategory === category.id && { backgroundColor: category.color }
+                      ]}
+                      onPress={() => setSelectedCategory(category.id)}
+                    >
+                      <View style={[
+                        styles.categoryDot,
+                        { backgroundColor: selectedCategory === category.id ? 'white' : category.color }
+                      ]} />
+                      <Text style={[
+                        styles.categoryChipText,
+                        selectedCategory === category.id && styles.categoryChipTextActive
+                      ]}>
+                        {category.name} ({getCategoryItemCount(category.id)})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Search Results Info */}
+            {searchQuery.trim() && (
+              <View style={styles.searchResults}>
+                <Text style={styles.searchResultsText}>
+                  {getFilteredPhrasebook().length} results for "{searchQuery}"
+                </Text>
+              </View>
+            )}
+
+            {/* Phrasebook Items */}
+            <ScrollView style={styles.itemsList}>
+              {getFilteredPhrasebook().map((item) => renderHistoryItem(item, true))}
+              {getFilteredPhrasebook().length === 0 && !searchQuery.trim() && selectedCategory !== "all" && (
+                <EmptyState
+                  title="No phrases in this category"
+                  description="Move some phrases to this category or create new ones"
+                  icon="📁"
+                />
               )}
-              
-              <ScrollArea className="flex-1">
-                <div className="p-4 space-y-4">
-                  {getFilteredHistory().map((item) => renderHistoryItem(item))}
-                  {getFilteredHistory().length === 0 && searchQuery.trim() && (
-                    <div className="text-center py-8">
-                      <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                      <p className="text-muted-foreground">No history found for "{searchQuery}"</p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Try searching with different keywords or check spelling
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
+              {getFilteredPhrasebook().length === 0 && searchQuery.trim() && (
+                <EmptyState
+                  title="No phrases found"
+                  description={`No phrases found for "${searchQuery}"`}
+                  icon="🔍"
+                />
+              )}
+            </ScrollView>
+          </View>
+        )
+      ) : (
+        // History tab
+        history.length === 0 ? (
+          <EmptyState
+            title="No translation history"
+            description="Start translating to see your history here"
+            icon="🔄"
+          />
+        ) : (
+          <ScrollView style={styles.itemsList}>
+            {getFilteredHistory().map((item) => renderHistoryItem(item, false))}
+          </ScrollView>
+        )
+      )}
+
+      {/* Add Category Modal */}
+      <Modal
+        visible={isAddCategoryModalOpen}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsAddCategoryModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add New Category</Text>
+            <Text style={styles.modalDescription}>
+              Create a new category to organize your phrasebook items.
+            </Text>
+
+            <View style={styles.modalForm}>
+              <Text style={styles.formLabel}>Category Name</Text>
+              <TextInput
+                style={styles.formInput}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                placeholder="Enter category name"
+              />
+
+              <Text style={styles.formLabel}>Category Color</Text>
+              <View style={styles.colorGrid}>
+                {predefinedColors.map(color => (
+                  <TouchableOpacity
+                    key={color}
+                    style={[
+                      styles.colorOption,
+                      { backgroundColor: color },
+                      newCategoryColor === color && styles.colorOptionSelected
+                    ]}
+                    onPress={() => setNewCategoryColor(color)}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.modalActions}>
+              <Button
+                onPress={() => setIsAddCategoryModalOpen(false)}
+                variant="outline"
+                style={styles.modalButton}
+              >
+                Cancel
+              </Button>
+              <Button
+                onPress={handleAddCategory}
+                disabled={!newCategoryName.trim()}
+                style={styles.modalButton}
+              >
+                Add Category
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  header: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: "#f3f3f5",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  searchCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f3f3f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchCloseText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerAction: {
+    padding: 8,
+  },
+  headerActionText: {
+    fontSize: 16,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    margin: 16,
+    backgroundColor: "#f3f3f5",
+    borderRadius: 8,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    gap: 4,
+  },
+  activeTab: {
+    backgroundColor: "#ffffff",
+  },
+  tabText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  activeTabText: {
+    color: "#030213",
+    fontWeight: "500",
+  },
+  tabBadge: {
+    backgroundColor: "#030213",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 20,
+  },
+  tabBadgeWarning: {
+    backgroundColor: "#f59e0b",
+  },
+  tabBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  content: {
+    flex: 1,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+  },
+  emptyIcon: {
+    fontSize: 32,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  emptyDescription: {
+    fontSize: 14,
+    color: "#666666",
+    textAlign: "center",
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    margin: 16,
+    padding: 12,
+    backgroundColor: "#fef3c7",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+  },
+  warningBannerError: {
+    backgroundColor: "#fecaca",
+    borderColor: "#ef4444",
+  },
+  warningIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  warningTextContainer: {
+    flex: 1,
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#92400e",
+    marginBottom: 2,
+  },
+  warningSubtitle: {
+    fontSize: 12,
+    color: "#92400e",
+  },
+  categoryFilter: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  categoryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  categoryTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+  },
+  addCategoryButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#f3f3f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addCategoryText: {
+    fontSize: 12,
+  },
+  categoryChips: {
+    flexDirection: "row",
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f3f3f5",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    gap: 4,
+  },
+  categoryChipActive: {
+    backgroundColor: "#030213",
+  },
+  categoryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  categoryChipText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  categoryChipTextActive: {
+    color: "#ffffff",
+  },
+  searchResults: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "rgba(243, 243, 245, 0.3)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
+  },
+  searchResultsText: {
+    fontSize: 14,
+    color: "#666666",
+  },
+  itemsList: {
+    flex: 1,
+    padding: 16,
+  },
+  historyItem: {
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  historyItemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  languageBadge: {
+    backgroundColor: "#030213",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  languageBadgeText: {
+    color: "#ffffff",
+    fontSize: 12,
+  },
+  arrowText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  targetText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  toneBadge: {
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  toneBadgeText: {
+    fontSize: 10,
+    color: "#666666",
+  },
+  categoryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  categoryBadgeText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  actionButtons: {
+    flexDirection: "row",
+    marginLeft: "auto",
+    gap: 4,
+  },
+  actionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionButtonText: {
+    fontSize: 16,
+  },
+  favoriteActive: {
+    color: "#ef4444",
+  },
+  sourceText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 12,
+  },
+  translationsContainer: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  translationItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  translationContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  translationText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#666666",
+  },
+  translationSpeakButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  translationSpeakButtonText: {
+    fontSize: 14,
+  },
+  timestamp: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    width: "90%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: "#666666",
+    marginBottom: 24,
+  },
+  modalForm: {
+    marginBottom: 24,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#000000",
+    marginBottom: 8,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  colorGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  colorOption: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  colorOptionSelected: {
+    borderColor: "#000000",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+  },
+});

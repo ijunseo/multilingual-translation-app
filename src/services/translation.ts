@@ -26,9 +26,11 @@ class TranslationService {
   private openai: OpenAI;
 
   constructor() {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OpenAI API key is not configured. Please set VITE_OPENAI_API_KEY in your environment variables.');
+    // For React Native/Expo, we'll use a simple import or direct assignment
+    // In production, you would use react-native-config or Expo's environment variables
+    const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY || 'your-openai-api-key-here';
+    if (!apiKey || apiKey === 'your-openai-api-key-here') {
+      throw new Error('OpenAI API key is not configured. Please set EXPO_PUBLIC_OPENAI_API_KEY in your environment variables.');
     }
 
     this.openai = new OpenAI({

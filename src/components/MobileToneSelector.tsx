@@ -1,8 +1,5 @@
-import { Button } from "./ui/button";
-import { Card } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { ScrollArea } from "./ui/scroll-area";
-import { Check } from "lucide-react";
+import React from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 
 interface TranslationTone {
   id: string;
@@ -14,7 +11,7 @@ interface TranslationTone {
 interface MobileToneSelectorProps {
   tones: TranslationTone[];
   selectedTone: string;
-  onToneChange: (toneId: string) => void;
+  onToneChange: (tone: string) => void;
 }
 
 export function MobileToneSelector({
@@ -22,44 +19,93 @@ export function MobileToneSelector({
   selectedTone,
   onToneChange,
 }: MobileToneSelectorProps) {
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-muted-foreground">Translation Style</h3>
+  const selectedToneObj = tones.find(t => t.id === selectedTone);
 
-      </div>
-      
-      <ScrollArea className="w-full">
-        <div className="flex gap-2 pb-2">
-          {tones.map((tone) => (
-            <Button
-              key={tone.id}
-              variant={selectedTone === tone.id ? "default" : "outline"}
-              size="sm"
-              onClick={() => onToneChange(tone.id)}
-              className={`flex-shrink-0 h-auto py-2 px-3 flex flex-col items-center gap-1 min-w-[80px] ${
-                selectedTone === tone.id 
-                  ? "bg-primary text-primary-foreground" 
-                  : "hover:bg-accent"
-              }`}
-            >
-              <div className="flex items-center gap-1">
-                {selectedTone === tone.id && (
-                  <Check className="w-3 h-3" />
-                )}
-              </div>
-              <span className="text-xs font-medium">{tone.name}</span>
-            </Button>
-          ))}
-        </div>
-      </ScrollArea>
-      
-      {/* Selected tone description */}
-      <div className="mt-2">
-        <p className="text-xs text-muted-foreground">
-          {tones.find(t => t.id === selectedTone)?.description}
-        </p>
-      </div>
-    </div>
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.label}>Translation Style</Text>
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toneList}>
+        {tones.map((tone) => (
+          <TouchableOpacity
+            key={tone.id}
+            style={[
+              styles.toneButton,
+              selectedTone === tone.id && styles.selectedTone
+            ]}
+            onPress={() => onToneChange(tone.id)}
+          >
+            <Text style={[
+              styles.toneName,
+              selectedTone === tone.id && styles.selectedToneName
+            ]}>
+              {tone.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {selectedToneObj && (
+        <View style={styles.description}>
+          <Text style={styles.descriptionText}>
+            {selectedToneObj.description}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    paddingHorizontal: 0,
+    paddingVertical: 8,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#666666",
+  },
+  toneList: {
+    flexDirection: "row",
+    marginBottom: 6,
+  },
+  toneButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginRight: 8,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  selectedTone: {
+    backgroundColor: "#030213",
+    borderColor: "#030213",
+  },
+  toneName: {
+    fontSize: 12,
+    color: "#030213",
+    fontWeight: "500",
+  },
+  selectedToneName: {
+    color: "#ffffff",
+  },
+  description: {
+    marginTop: 4,
+  },
+  descriptionText: {
+    fontSize: 12,
+    color: "#666666",
+  },
+});

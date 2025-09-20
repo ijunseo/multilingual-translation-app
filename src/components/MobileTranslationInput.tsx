@@ -1,83 +1,136 @@
-import { Textarea } from "./ui/textarea";
-import { Button } from "./ui/button";
-import { X, Volume2, Mic } from "lucide-react";
+import React from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Keyboard } from "react-native";
 
 interface MobileTranslationInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-  language: string;
-  onSpeak?: () => void;
+  onSpeak?: (text: string, language?: string) => void;
   onVoiceInput?: () => void;
   maxLength?: number;
+  isLoading?: boolean;
+  isListening?: boolean;
 }
 
 export function MobileTranslationInput({
   value,
   onChange,
   placeholder,
-  language,
   onSpeak,
   onVoiceInput,
   maxLength = 5000,
+  isLoading = false,
+  isListening = false,
 }: MobileTranslationInputProps) {
   const handleClear = () => {
     onChange("");
   };
 
   return (
-    <div className="mx-4 mb-6">
-      <div className="relative">
-        <Textarea
+    <View style={styles.container}>
+      <View style={styles.inputContainer}>
+        <TextInput
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChangeText={onChange}
           placeholder={placeholder}
-          className="min-h-[140px] resize-none text-base p-4 border-2 rounded-2xl focus:border-primary"
+          style={styles.textInput}
+          multiline={true}
           maxLength={maxLength}
+          textAlignVertical="top"
+          returnKeyType="done"
+          blurOnSubmit={true}
+          onSubmitEditing={() => {
+            Keyboard.dismiss();
+          }}
         />
-        
-        {/* Action buttons */}
-        <div className="flex justify-between items-center mt-3">
-          <div className="text-xs text-muted-foreground">
+
+        <View style={styles.actionBar}>
+          <Text style={styles.characterCount}>
             {value.length} / {maxLength}
-          </div>
-          
-          <div className="flex gap-2">
-            {value && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleClear}
-                className="h-10 w-10 rounded-full"
+          </Text>
+
+          <View style={styles.buttonContainer}>
+            {value.length > 0 && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleClear}
               >
-                <X className="w-5 h-5" />
-              </Button>
+                <Text style={styles.buttonText}>×</Text>
+              </TouchableOpacity>
             )}
-            
+
             {onVoiceInput && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onVoiceInput}
-                className="h-10 w-10 rounded-full"
+              <TouchableOpacity
+                style={[styles.actionButton, isListening && styles.listeningButton]}
+                onPress={onVoiceInput}
               >
-                <Mic className="w-5 h-5" />
-              </Button>
+                <Text style={styles.buttonText}>
+                  {isListening ? '⏹' : '🎤'}
+                </Text>
+              </TouchableOpacity>
             )}
-            
-            {value && onSpeak && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onSpeak}
-                className="h-10 w-10 rounded-full"
+
+            {value.length > 0 && onSpeak && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => onSpeak && onSpeak(value)}
               >
-                <Volume2 className="w-5 h-5" />
-              </Button>
+                <Text style={styles.buttonText}>🔊</Text>
+              </TouchableOpacity>
             )}
-          </div>
-        </div>
-      </div>
-    </div>
+          </View>
+        </View>
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    marginBottom: 12,
+  },
+  inputContainer: {
+    position: "relative",
+  },
+  textInput: {
+    minHeight: 100,
+    maxHeight: 120,
+    fontSize: 16,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    textAlignVertical: "top",
+  },
+  actionBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 12,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: "#666666",
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: "transparent",
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listeningButton: {
+    backgroundColor: "rgba(255, 0, 0, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 0, 0, 0.3)",
+  },
+  buttonText: {
+    fontSize: 20,
+  },
+});
