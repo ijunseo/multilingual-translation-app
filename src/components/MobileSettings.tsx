@@ -9,6 +9,8 @@ import {
   Alert,
   Modal,
 } from "react-native";
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { Button } from "./ui/button";
 
 export type TranslationDirection =
@@ -94,6 +96,218 @@ export function MobileSettings({
 
   const getCurrentPlan = () => {
     return subscriptionPlans.find(plan => plan.id === userSubscription.planId) || subscriptionPlans[0];
+  };
+
+  const exportPhrasebookToPDF = async () => {
+    const currentPlan = getCurrentPlan();
+
+    if (!currentPlan.pdfExport) {
+      Alert.alert(
+        "PDF Export Unavailable",
+        "PDF export is only available for Basic and Premium subscribers. Please upgrade your plan.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Upgrade", onPress: () => setSelectedTab("subscription") }
+        ]
+      );
+      return;
+    }
+
+    if (phrasebook.length === 0) {
+      Alert.alert("No Data", "Your phrasebook is empty. Add some phrases to export.");
+      return;
+    }
+
+    try {
+      // Group phrases by category
+      const groupedPhrases: Record<string, MultiTranslationHistoryItem[]> = {};
+      phrasebook.forEach(phrase => {
+        const categoryId = phrase.category || "general";
+        if (!groupedPhrases[categoryId]) {
+          groupedPhrases[categoryId] = [];
+        }
+        groupedPhrases[categoryId].push(phrase);
+      });
+
+      // Generate HTML content for PDF
+      const htmlContent = generatePhrasebookHTML(groupedPhrases);
+
+      // Create PDF
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+        margins: {
+          left: 30,
+          top: 50,
+          right: 30,
+          bottom: 50,
+        },
+      });
+
+      // Share the PDF
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Export Phrasebook PDF',
+        UTI: 'com.adobe.pdf',
+      });
+
+      Alert.alert("Success", "Phrasebook exported successfully!");
+    } catch (error) {
+      console.error('PDF export error:', error);
+      Alert.alert("Error", "Failed to export PDF. Please try again.");
+    }
+  };
+
+  const generatePhrasebookHTML = (groupedPhrases: Record<string, MultiTranslationHistoryItem[]>) => {
+    const getCategoryName = (categoryId: string) => {
+      const category = phrasebookCategories.find(cat => cat.id === categoryId);
+      return category ? category.name : "General";
+    };
+
+    const getLanguageName = (langCode: string) => {
+      const language = allLanguages.find(lang => lang.code === langCode);
+      return language ? language.nativeName : langCode;
+    };
+
+    let html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>My Phrasebook</title>
+        <style>
+          body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #030213;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+          }
+          .header h1 {
+            color: #030213;
+            font-size: 28px;
+            margin: 0;
+          }
+          .header .subtitle {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+          }
+          .category {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+          }
+          .category-title {
+            color: #030213;
+            font-size: 20px;
+            font-weight: bold;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+          }
+          .phrase {
+            margin-bottom: 25px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #fafafa;
+            page-break-inside: avoid;
+          }
+          .source {
+            font-weight: bold;
+            font-size: 16px;
+            color: #030213;
+            margin-bottom: 10px;
+          }
+          .source-meta {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 15px;
+          }
+          .translations {
+            display: grid;
+            gap: 8px;
+          }
+          .translation {
+            padding: 8px 12px;
+            background-color: white;
+            border-radius: 6px;
+            border-left: 3px solid #030213;
+          }
+          .translation-lang {
+            font-weight: bold;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 2px;
+          }
+          .translation-text {
+            font-size: 14px;
+            color: #333;
+          }
+          .metadata {
+            font-size: 11px;
+            color: #999;
+            margin-top: 10px;
+            text-align: right;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>My Phrasebook</h1>
+          <div class="subtitle">Exported on ${new Date().toLocaleDateString()}</div>
+          <div class="subtitle">${phrasebook.length} phrases</div>
+        </div>
+    `;
+
+    Object.entries(groupedPhrases).forEach(([categoryId, phrases]) => {
+      html += `
+        <div class="category">
+          <h2 class="category-title">${getCategoryName(categoryId)}</h2>
+      `;
+
+      phrases.forEach(phrase => {
+        html += `
+          <div class="phrase">
+            <div class="source">${phrase.sourceText}</div>
+            <div class="source-meta">
+              ${getLanguageName(phrase.sourceLanguage)}
+              ${phrase.tone ? ` • ${phrase.tone.charAt(0).toUpperCase() + phrase.tone.slice(1)} style` : ''}
+            </div>
+            <div class="translations">
+        `;
+
+        Object.entries(phrase.translations).forEach(([langCode, translation]) => {
+          html += `
+            <div class="translation">
+              <div class="translation-lang">${getLanguageName(langCode)}</div>
+              <div class="translation-text">${translation}</div>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+            <div class="metadata">Added: ${phrase.timestamp.toLocaleDateString()}</div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    });
+
+    html += `
+      </body>
+      </html>
+    `;
+
+    return html;
   };
 
   const handleLanguageToggle = (languageCode: string) => {
@@ -447,7 +661,7 @@ export function MobileSettings({
               styles.exportButton,
               (!currentPlan.pdfExport || phrasebook.length === 0) && styles.exportButtonDisabled
             ]}
-            onPress={generatePhrasebookPDF}
+            onPress={exportPhrasebookToPDF}
             disabled={!currentPlan.pdfExport || phrasebook.length === 0}
           >
             <Text style={[
