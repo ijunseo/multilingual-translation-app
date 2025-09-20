@@ -59,6 +59,9 @@ Source text: "${text}"
 Translation:`;
   }
 
+// Please convert the Japanese or English sentence written in "#Japanese Sentence" into casual, 
+// everyday English commonly used in Australia. Output the English expression only.
+
   async translateText(options: TranslationOptions): Promise<string> {
     try {
       const prompt = this.generateTranslationPrompt(options);
