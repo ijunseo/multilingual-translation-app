@@ -12,6 +12,7 @@ import {
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Button } from "./ui/button";
+import { IAPPayment } from "./IAPPayment";
 
 export type TranslationDirection =
   | "ja-to-en-ko"
@@ -93,6 +94,8 @@ export function MobileSettings({
 }: MobileSettingsProps) {
   const [selectedTab, setSelectedTab] = useState<"languages" | "subscription" | "export">("languages");
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const [showPaymentSheet, setShowPaymentSheet] = useState(false);
+  const [selectedPlanForPayment, setSelectedPlanForPayment] = useState<'basic' | 'premium' | null>(null);
 
   const getCurrentPlan = () => {
     return subscriptionPlans.find(plan => plan.id === userSubscription.planId) || subscriptionPlans[0];
@@ -318,21 +321,74 @@ export function MobileSettings({
     onLanguageToggle(languageCode);
   };
 
-  const handleUpgrade = (planId: 'basic' | 'premium') => {
-    Alert.alert(
-      "Upgrade Subscription",
-      `Are you sure you want to upgrade to ${planId === 'basic' ? 'Basic' : 'Premium'} plan?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Upgrade",
-          onPress: () => {
-            onUpgradeSubscription(planId, billingCycle);
-            Alert.alert("Success", `Upgraded to ${planId === 'basic' ? 'Basic' : 'Premium'} plan!`);
-          }
-        }
-      ]
+  const moveLanguageUp = (index: number) => {
+    if (index === 0) return;
+    const newOrder = [...languageOrder];
+    [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+    onLanguageOrderChange(newOrder);
+  };
+
+  const moveLanguageDown = (index: number) => {
+    if (index >= languageOrder.length - 1) return;
+    const newOrder = [...languageOrder];
+    [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+    onLanguageOrderChange(newOrder);
+  };
+
+  const ReorderableLanguageItem = ({ language, index, totalCount }: { language: Language; index: number; totalCount: number }) => {
+    return (
+      <View style={styles.languageItem}>
+        <View style={styles.reorderControls}>
+          <TouchableOpacity
+            style={[styles.reorderButton, index === 0 && styles.reorderButtonDisabled]}
+            onPress={() => moveLanguageUp(index)}
+            disabled={index === 0}
+          >
+            <Text style={[styles.reorderButtonText, index === 0 && styles.reorderButtonTextDisabled]}>↑</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.reorderButton, index >= totalCount - 1 && styles.reorderButtonDisabled]}
+            onPress={() => moveLanguageDown(index)}
+            disabled={index >= totalCount - 1}
+          >
+            <Text style={[styles.reorderButtonText, index >= totalCount - 1 && styles.reorderButtonTextDisabled]}>↓</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.languageInfo}>
+          <Text style={styles.languageName}>{language.nativeName}</Text>
+          <Text style={styles.languageSubname}>{language.name}</Text>
+        </View>
+        <Switch
+          value={enabledLanguages.includes(language.code)}
+          onValueChange={() => handleLanguageToggle(language.code)}
+          trackColor={{ false: "#f3f3f5", true: "#030213" }}
+          thumbColor={enabledLanguages.includes(language.code) ? "#ffffff" : "#ffffff"}
+        />
+      </View>
     );
+  };
+
+  const handleUpgrade = (planId: 'basic' | 'premium') => {
+    // 決済画面を表示
+    setSelectedPlanForPayment(planId);
+    setShowPaymentSheet(true);
+  };
+
+  const handlePaymentSuccess = () => {
+    // 決済成功時の処理
+    setShowPaymentSheet(false);
+
+    if (selectedPlanForPayment) {
+      onUpgradeSubscription(selectedPlanForPayment, billingCycle);
+    }
+
+    setSelectedPlanForPayment(null);
+  };
+
+  const handlePaymentCancel = () => {
+    // 決済キャンセル時の処理
+    setShowPaymentSheet(false);
+    setSelectedPlanForPayment(null);
   };
 
   const handleCancelSubscription = (immediate: boolean = false) => {
@@ -380,31 +436,39 @@ export function MobileSettings({
     Alert.alert("Export PDF", "PDF export feature would open here in a real app");
   };
 
-  const renderLanguageSettings = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Translation Languages</Text>
-      <Text style={styles.sectionDescription}>
-        Select which languages to include in translations. At least 2 languages must be enabled.
-      </Text>
+  const renderLanguageSettings = () => {
+    // Sort languages by the current order
+    const orderedLanguages = languageOrder
+      .map(code => allLanguages.find(lang => lang.code === code))
+      .filter(Boolean) as Language[];
 
-      <View style={styles.languageList}>
-        {allLanguages.map((language) => (
-          <View key={language.code} style={styles.languageItem}>
-            <View style={styles.languageInfo}>
-              <Text style={styles.languageName}>{language.nativeName}</Text>
-              <Text style={styles.languageSubname}>{language.name}</Text>
-            </View>
-            <Switch
-              value={enabledLanguages.includes(language.code)}
-              onValueChange={() => handleLanguageToggle(language.code)}
-              trackColor={{ false: "#f3f3f5", true: "#030213" }}
-              thumbColor={enabledLanguages.includes(language.code) ? "#ffffff" : "#ffffff"}
+    // Add any languages not in the order (fallback)
+    allLanguages.forEach(lang => {
+      if (!orderedLanguages.find(ordered => ordered.code === lang.code)) {
+        orderedLanguages.push(lang);
+      }
+    });
+
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Translation Languages</Text>
+        <Text style={styles.sectionDescription}>
+          Select which languages to include in translations. Use ↑↓ buttons to reorder. At least 2 languages must be enabled.
+        </Text>
+
+        <View style={styles.languageList}>
+          {orderedLanguages.map((language, index) => (
+            <ReorderableLanguageItem
+              key={language.code}
+              language={language}
+              index={index}
+              totalCount={orderedLanguages.length}
             />
-          </View>
-        ))}
+          ))}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderSubscriptionSettings = () => {
     const currentPlan = getCurrentPlan();
@@ -689,6 +753,23 @@ export function MobileSettings({
 
   return (
     <View style={styles.container}>
+      {/* Payment Sheet Modal */}
+      <Modal
+        visible={showPaymentSheet}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={handlePaymentCancel}
+      >
+        {selectedPlanForPayment && (
+          <IAPPayment
+            planId={selectedPlanForPayment}
+            billingCycle={billingCycle}
+            onSuccess={handlePaymentSuccess}
+            onCancel={handlePaymentCancel}
+          />
+        )}
+      </Modal>
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
@@ -802,6 +883,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: "#f9f9f9",
     borderRadius: 12,
+    marginBottom: 8,
+  },
+  reorderControls: {
+    flexDirection: "column",
+    gap: 4,
+    marginRight: 12,
+  },
+  reorderButton: {
+    backgroundColor: "#e5e5e5",
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 32,
+    minHeight: 24,
+  },
+  reorderButtonDisabled: {
+    backgroundColor: "#f3f3f5",
+  },
+  reorderButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#030213",
+  },
+  reorderButtonTextDisabled: {
+    color: "#cccccc",
   },
   languageInfo: {
     flex: 1,
