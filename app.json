@@ -16,19 +16,33 @@
     ],
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.myphrases.app",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "このアプリは音声認識機能のためにマイクアクセスが必要です",
-        "NSSpeechRecognitionUsageDescription": "このアプリは音声をテキストに変換するために音声認識が必要です"
+        "NSSpeechRecognitionUsageDescription": "このアプリは音声をテキストに変換するために音声認識が必要です",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSExceptionDomains": {
+            "172.16.27.244": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true
+            }
+          }
+        }
       }
     },
     "android": {
+      "package": "com.myphrases.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "com.android.vending.BILLING"
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"

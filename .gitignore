@@ -8,6 +8,11 @@ yarn-error.log*
 dist/
 build/
 *.tsbuildinfo
+web-build/
+
+# Expo
+.expo/
+.expo-shared/
 
 # Environment variables
 .env

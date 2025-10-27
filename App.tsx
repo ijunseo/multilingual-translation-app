@@ -12,6 +12,7 @@ import { MobileSettings, TranslationDirection } from "./src/components/MobileSet
 import { MobileFlashCard } from "./src/components/MobileFlashCard";
 import { BottomNavigation } from "./src/components/BottomNavigation";
 import { translationService } from "./src/services/translation";
+import { initializeIAP, disconnectIAP, checkActiveSubscription, setPurchaseListener } from "./src/services/iap";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Language {
@@ -118,8 +119,8 @@ export default function App() {
     { id: "daily", name: "Daily Conversation", color: "#ef4444", createdAt: new Date() },
   ]);
   const [translationDirection, setTranslationDirection] = useState<TranslationDirection>("all-to-all");
-  const [enabledLanguages, setEnabledLanguages] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]);
-  const [languageOrder, setLanguageOrder] = useState<string[]>(["ja", "ko", "en-us", "en-uk", "en-au"]);
+  const [enabledLanguages, setEnabledLanguages] = useState<string[]>(["ja", "ko", "zh-cn", "zh-tw", "en-us", "en-uk", "en-au"]);
+  const [languageOrder, setLanguageOrder] = useState<string[]>(["ja", "ko", "zh-cn", "zh-tw", "en-us", "en-uk", "en-au"]);
   const [userSubscription, setUserSubscription] = useState<UserSubscription>({
     planId: 'free',
     isActive: true,
@@ -130,6 +131,61 @@ export default function App() {
   const [selectedTone, setSelectedTone] = useState<string>("casual");
   const [isListening, setIsListening] = useState(false);
   const [recognitionPermission, setRecognitionPermission] = useState<boolean | null>(null);
+
+  // App内課金の初期化
+  useEffect(() => {
+    const initializeApp = async () => {
+      // IAP初期化
+      const iapInitialized = await initializeIAP();
+      if (iapInitialized) {
+        console.log('IAP initialized successfully');
+
+        // サブスクリプションの状態をチェック
+        const subscriptionStatus = await checkActiveSubscription();
+        if (subscriptionStatus.isActive) {
+          setUserSubscription({
+            planId: subscriptionStatus.planId,
+            isActive: true,
+            expiresAt: subscriptionStatus.expiresAt,
+            cancelledAt: null,
+            willCancelAt: null,
+          });
+          console.log('Active subscription found:', subscriptionStatus.planId);
+        }
+
+        // 購入リスナーを設定
+        const listener = setPurchaseListener(async (purchase) => {
+          console.log('Purchase listener triggered:', purchase);
+
+          // サブスクリプションの状態を再チェック
+          const newStatus = await checkActiveSubscription();
+          if (newStatus.isActive) {
+            setUserSubscription({
+              planId: newStatus.planId,
+              isActive: true,
+              expiresAt: newStatus.expiresAt,
+              cancelledAt: null,
+              willCancelAt: null,
+            });
+          }
+        });
+
+        // クリーンアップ
+        return () => {
+          listener.remove();
+        };
+      } else {
+        console.warn('IAP initialization failed');
+      }
+    };
+
+    initializeApp();
+
+    // アプリ終了時のクリーンアップ
+    return () => {
+      disconnectIAP();
+    };
+  }, []);
 
   // マイク権限の初期化と詳細チェック
   useEffect(() => {
@@ -571,6 +627,8 @@ export default function App() {
           const recognition = new SpeechRecognition();
           const locale = sourceLanguage.code === 'ja' ? 'ja-JP' :
                         sourceLanguage.code === 'ko' ? 'ko-KR' :
+                        sourceLanguage.code === 'zh-cn' ? 'zh-CN' :
+                        sourceLanguage.code === 'zh-tw' ? 'zh-TW' :
                         sourceLanguage.code === 'en-us' ? 'en-US' :
                         sourceLanguage.code === 'en-uk' ? 'en-GB' :
                         sourceLanguage.code === 'en-au' ? 'en-AU' : 'en-US';
@@ -659,6 +717,8 @@ export default function App() {
     const placeholders = {
       ja: "翻訳したいテキストを入力してください",
       ko: "번역할 텍스트를 입력하세요",
+      "zh-cn": "请输入要翻译的文本",
+      "zh-tw": "請輸入要翻譯的文本",
       "en-us": "Enter text to translate",
       "en-uk": "Enter text to translate",
       "en-au": "Enter text to translate",
