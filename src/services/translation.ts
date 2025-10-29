@@ -69,7 +69,7 @@ Translation:`;
       const prompt = this.generateTranslationPrompt(options);
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         messages: [
           {
             role: 'user',
